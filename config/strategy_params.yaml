@@ -66,6 +66,8 @@ wheel:
   expiration_weeks: 2            # Weeks to expiration at entry
   cc_strike_markup_pct: 2.0      # CC strike = cost_basis * (1 + this/100)
   min_premium_pct: 0.8           # Raised from 0.5 — elevated IV means we can demand more
+  max_portfolio_pct_per_trade: 6.0   # Max % of equity per CSP (e.g. 6% of $250k = $15k/position)
+  max_wheel_allocation_pct: 65       # Stop opening new CSPs above this % of equity in margin
 
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
@@ -82,7 +84,19 @@ guardrails:
 notifications:
   alert_email: "[FILL_IN]"       # e.g. you@yourdomain.com
   daily_report_time: "16:15"     # 4:15 PM local market time
+  status_check_interval_hours: 2 # Send a status email every N hours during market window
   timezone: "America/New_York"
+
+regime:
+  bear_spy_threshold: -2.0       # SPY intraday % → BEAR (half allocation, wider delta)
+  extreme_spy_threshold: -4.0    # SPY intraday % → EXTREME_BEAR (no new entries)
+
+hedge:
+  enabled: true
+  tickers:
+    - "SQQQ"                     # 3x inverse Nasdaq — swap for "SH" for lower vol
+  allocation_pct: 3.0            # % of equity per ticker in BEAR regime
+  extreme_multiplier: 2.0        # multiply allocation in EXTREME_BEAR
 
 database:
   table: "decision_logic"

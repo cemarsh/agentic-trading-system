@@ -38,6 +38,7 @@ class NotificationConfig:
     resend_key: str
     alert_email: str
     daily_report_time: str
+    status_check_interval_hours: int
     timezone: str
 
 
@@ -69,6 +70,8 @@ class WheelConfig:
     expiration_weeks: int
     cc_strike_markup_pct: float
     min_premium_pct: float
+    max_portfolio_pct_per_trade: float
+    max_wheel_allocation_pct: float
 
 
 @dataclass
@@ -77,6 +80,20 @@ class ProtectionConfig:
     gap_tighten_pct: float
     ladder_drop_pct: float
     ladder_buy_shares: int
+
+
+@dataclass
+class RegimeConfig:
+    bear_spy_threshold: float
+    extreme_spy_threshold: float
+
+
+@dataclass
+class HedgeConfig:
+    enabled: bool
+    tickers: List[str]
+    allocation_pct: float
+    extreme_multiplier: float
 
 
 @dataclass
@@ -98,6 +115,8 @@ class Settings:
     wheel: WheelConfig
     protection: ProtectionConfig
     guardrails: GuardrailsConfig
+    regime: RegimeConfig
+    hedge: HedgeConfig
 
 
 def load() -> Settings:
@@ -132,6 +151,7 @@ def load() -> Settings:
             resend_key=resend_key or "",
             alert_email=os.environ.get("ALERT_EMAIL", raw["notifications"]["alert_email"]),
             daily_report_time=raw["notifications"]["daily_report_time"],
+            status_check_interval_hours=raw["notifications"].get("status_check_interval_hours", 2),
             timezone=raw["notifications"]["timezone"],
         ),
         hardware=HardwareConfig(**raw["hardware"]),
@@ -140,4 +160,6 @@ def load() -> Settings:
         wheel=WheelConfig(**raw["wheel"]),
         protection=ProtectionConfig(**raw["protection"]),
         guardrails=GuardrailsConfig(**g),
+        regime=RegimeConfig(**raw["regime"]),
+        hedge=HedgeConfig(**raw["hedge"]),
     )
