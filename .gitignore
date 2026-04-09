@@ -25,3 +25,5 @@ build/
 .vscode/
 .idea/
 *.swp
+debug_*.py
+test_policy.py
