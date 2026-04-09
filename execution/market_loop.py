@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,6 +22,8 @@ from execution.whale_watch import WhaleWatcher
 from execution.wheel_strategy import WheelStrategy
 from execution.protective_logic import ProtectiveLogic
 from execution.policy_monitor import PolicyMonitor
+from execution.regime_detector import RegimeDetector
+from execution.inverse_etf_hedge import InverseETFHedge
 
 STATE_PATH = Path("logs/agent_state.json")
 
@@ -30,6 +32,7 @@ INITIAL_STATE = {
     "api_failures": 0,
     "halted": False,
     "last_daily_report": None,
+    "last_status_report": None,
 }
 
 
@@ -102,8 +105,16 @@ def run(mode: str):
     wheel = WheelStrategy(settings=cfg, alpaca_client=alpaca, db_logger=db)
     protection = ProtectiveLogic(settings=cfg, alpaca_client=alpaca, db_logger=db)
     policy = PolicyMonitor(settings=cfg, notifier=notifier, db=db)
+    regime = RegimeDetector(settings=cfg, alpaca_client=alpaca)
+    hedge = InverseETFHedge(settings=cfg, alpaca_client=alpaca, db_logger=db)
 
     print(f"[START] Trading loop active — {mode.upper()} mode — {datetime.now().isoformat()}")
+
+    whale_hits_session: list = []
+    policy_feed_ok: bool = True
+    wheel_tickers_scanned: int = 0
+    wheel_contracts_found: int = 0
+    current_regime: str = "NEUTRAL"
 
     while True:
         try:
@@ -130,60 +141,134 @@ def run(mode: str):
                 if protection.check_ladder(ticker, price):
                     protection.execute_ladder(ticker)
 
+            # --- Regime Detection ---
+            current_regime = regime.detect()
+
             # --- Whale Watch ---
-            whale_hits = whale.get_actionable_trades()
+            try:
+                whale_hits = whale.get_actionable_trades()
+            except Exception as we:
+                print(f"[WHALE] Fetch error: {we}")
+                whale_hits = []
+            if whale_hits:
+                whale_hits_session = whale_hits  # keep latest batch for status reports
             for trade in whale_hits:
-                account = alpaca.get_account()
-                equity = float(account.get("equity", 0))
-                max_alloc = equity * cfg.whale_watch.max_portfolio_pct_per_trade / 100
-                bars = alpaca.get_bars(trade.ticker, "1Min", 1)
-                if not bars:
+                # Skip new equity entries in extreme bear — preserve capital
+                if current_regime == "EXTREME_BEAR":
+                    print(f"[WHALE] Skipping {trade.ticker} — EXTREME_BEAR regime")
                     continue
-                price = bars[-1]["c"]
-                qty = int(max_alloc // price)
-                if qty < 1:
-                    continue
-
-                # Manual confirm check
-                order_value = qty * price
-                vt_done = state.get("verification_trades_done", 0)
-                needs_confirm = (
-                    order_value > cfg.guardrails.manual_confirm_threshold
-                    and vt_done < cfg.guardrails.verification_trades
-                )
-                if needs_confirm:
-                    print(
-                        f"[CONFIRM REQUIRED] {trade.ticker} {qty} shares @ ${price:.2f} "
-                        f"(${order_value:,.0f}) — type CONFIRM to proceed"
-                    )
-                    user_input = input("> ").strip().upper()
-                    if user_input != "CONFIRM":
-                        print("[SKIP] Order skipped by operator")
+                try:
+                    account = alpaca.get_account()
+                    equity = float(account.get("equity", 0))
+                    alloc_pct = cfg.whale_watch.max_portfolio_pct_per_trade * regime.allocation_multiplier()
+                    max_alloc = equity * alloc_pct / 100
+                    bars = alpaca.get_bars(trade.ticker, "1Min", 1)
+                    if not bars:
                         continue
-                    state["verification_trades_done"] = vt_done + 1
-                    save_state(state)
+                    price = bars[-1]["c"]
+                    qty = int(max_alloc // price)
+                    if qty < 1:
+                        continue
 
-                side = "buy" if trade.trade_type == "purchase" else "sell"
-                alpaca.submit_order(trade.ticker, qty, side)
-                db.log_decision(
-                    ticker=trade.ticker,
-                    action=side.upper(),
-                    tier="whale_watch",
-                    confidence=trade.confidence,
-                    reasoning=(
-                        f"{trade.politician} {trade.trade_type} ${trade.trade_value:,.0f} "
-                        f"ROC={trade.roc_pct:.2f}%"
-                    ),
-                    status="submitted",
-                )
+                    # Manual confirm check
+                    order_value = qty * price
+                    vt_done = state.get("verification_trades_done", 0)
+                    needs_confirm = (
+                        order_value > cfg.guardrails.manual_confirm_threshold
+                        and vt_done < cfg.guardrails.verification_trades
+                    )
+                    if needs_confirm:
+                        print(
+                            f"[CONFIRM REQUIRED] {trade.ticker} {qty} shares @ ${price:.2f} "
+                            f"(${order_value:,.0f}) — type CONFIRM to proceed"
+                        )
+                        user_input = input("> ").strip().upper()
+                        if user_input != "CONFIRM":
+                            print("[SKIP] Order skipped by operator")
+                            continue
+                        state["verification_trades_done"] = vt_done + 1
+                        save_state(state)
+
+                    side = "buy" if trade.trade_type == "purchase" else "sell"
+                    print(f"[WHALE] {side.upper()} {qty}x {trade.ticker} @ ~${price:.2f}  ({trade.politician})")
+                    alpaca.submit_order(trade.ticker, qty, side)
+                    if db:
+                        db.log_decision(
+                            ticker=trade.ticker,
+                            action=side.upper(),
+                            tier="whale_watch",
+                            confidence=trade.confidence,
+                            reasoning=(
+                                f"{trade.politician} {trade.trade_type} ${trade.trade_value:,.0f} "
+                                f"ROC={trade.roc_pct:.2f}%"
+                            ),
+                            status="submitted",
+                        )
+                except Exception as oe:
+                    print(f"[WHALE] Order failed {trade.ticker}: {oe}")
 
             # --- Policy Intelligence Monitor ---
-            policy_signals = policy.scan()
-            if policy_signals:
-                print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
+            try:
+                policy_signals = policy.scan()
+                policy_feed_ok = True
+                if policy_signals:
+                    print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
+            except Exception as pe:
+                policy_feed_ok = False
+                print(f"[POLICY] scan error: {pe}")
 
             # --- Wheel Strategy ---
-            wheel.run_cycle()
+            wheel_tickers_scanned = len(cfg.wheel.tickers)
+            if current_regime == "EXTREME_BEAR":
+                print("[WHEEL] EXTREME_BEAR regime — skipping new CSP entries")
+                wheel_contracts_found = 0
+            else:
+                # In BEAR regime, override target delta to be more conservative
+                delta_override = regime.target_delta_override()
+                if delta_override:
+                    cfg.wheel.target_delta = delta_override
+                wheel_contracts_found = wheel.run_cycle()
+
+            # --- Inverse ETF Hedge ---
+            hedge.run(regime=current_regime, positions=positions, equity=float(alpaca.get_account().get("equity", 0)))
+
+            # --- Status Check (every N hours during market window) ---
+            now = datetime.now(timezone.utc)
+            # Market window: 13:30–20:30 UTC (9:30 AM–4:30 PM ET)
+            in_market_window = (now.hour, now.minute) >= (13, 30) and now.hour < 20
+            interval_hours = cfg.notifications.status_check_interval_hours
+            last_sr = state.get("last_status_report")
+            status_due = False
+            if last_sr:
+                elapsed = now - datetime.fromisoformat(last_sr)
+                status_due = elapsed >= timedelta(hours=interval_hours)
+            else:
+                status_due = in_market_window  # first run: fire as soon as market opens
+
+            if status_due and in_market_window and notifier:
+                account = alpaca.get_account()
+                equity = float(account.get("equity", 0))
+                unrealized_pnl = sum(float(p.get("unrealized_pl", 0)) for p in positions)
+                notifier.status_report(
+                    mode=mode,
+                    positions=positions,
+                    equity=equity,
+                    unrealized_pnl=unrealized_pnl,
+                    cpu_pct=metrics["cpu_pct"],
+                    temp_c=metrics["temp_c"],
+                    api_failures=state.get("api_failures", 0),
+                    whale_hits_today=[
+                        f"{t.politician} → {t.ticker}" for t in whale_hits_session
+                    ],
+                    policy_feed_ok=policy_feed_ok,
+                    wheel_tickers_scanned=wheel_tickers_scanned,
+                    wheel_contracts_found=wheel_contracts_found,
+                    regime=current_regime,
+                    spy_change_pct=regime.spy_change_pct,
+                )
+                state["last_status_report"] = now.isoformat()
+                print(f"[STATUS] Status report sent at {now.strftime('%H:%M UTC')}")
+                save_state(state)
 
             # --- Daily Report ---
             now = datetime.now(timezone.utc)

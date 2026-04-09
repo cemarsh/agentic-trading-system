@@ -40,6 +40,75 @@ class Notifier:
             body=f"CRITICAL ALERT — {datetime.utcnow().isoformat()}Z\n\n{message}",
         )
 
+    def status_report(
+        self,
+        mode: str,
+        positions: list,
+        equity: float,
+        unrealized_pnl: float,
+        cpu_pct: float,
+        temp_c: float,
+        api_failures: int,
+        whale_hits_today: list,
+        policy_feed_ok: bool,
+        wheel_tickers_scanned: int,
+        wheel_contracts_found: int,
+        regime: str = "NEUTRAL",
+        spy_change_pct: float = 0.0,
+    ):
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M ET")
+        lines = [
+            f"System Status — {now_str}",
+            "=" * 50,
+            f"Mode:           {mode.upper()}",
+            f"Regime:         {regime}  (SPY {spy_change_pct:+.2f}% intraday)",
+            f"Account Equity: ${equity:,.2f}",
+            f"Unrealized P&L: ${unrealized_pnl:+,.2f}",
+            f"Open Positions: {len(positions)}",
+            f"API Failures:   {api_failures}",
+            "",
+            "--- Positions ---",
+        ]
+        if positions:
+            for p in positions:
+                lines.append(
+                    f"  {p['symbol']:8s}  qty={p['qty']:>6}  "
+                    f"unrealized={float(p.get('unrealized_pl', 0)):+,.2f}"
+                )
+        else:
+            lines.append("  (no open positions)")
+
+        lines += [
+            "",
+            "--- Wheel Strategy ---",
+            f"  Tickers scanned:   {wheel_tickers_scanned}",
+            f"  Contracts found:   {wheel_contracts_found}",
+        ]
+        if wheel_contracts_found == 0:
+            lines.append("  NOTE: No contracts matched — strikes may be above current prices")
+
+        lines += [
+            "",
+            "--- Signal Sources ---",
+            f"  Policy feed:  {'OK' if policy_feed_ok else 'DEGRADED (403 on whitehouse.gov)'}",
+            f"  Whale watch:  {len(whale_hits_today)} signal(s) today",
+        ]
+        if whale_hits_today:
+            for h in whale_hits_today:
+                lines.append(f"    {h}")
+
+        lines += [
+            "",
+            "--- Hardware ---",
+            f"  CPU:  {cpu_pct:.1f}%",
+            f"  Temp: {temp_c:.1f}°C",
+        ]
+
+        self.send(
+            subject=f"[STATUS] Trading System — {now_str}",
+            body="\n".join(lines),
+        )
+
     def daily_report(
         self,
         realized_pnl: float,
