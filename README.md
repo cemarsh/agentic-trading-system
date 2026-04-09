@@ -1,6 +1,6 @@
 # Agentic Trading System
 
-**Version**: 1.1.0  
+**Version**: 1.2.0  
 **Last Updated**: 2026-04-09  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · ThinkPad P70 · Alpaca Markets
@@ -45,15 +45,21 @@ shifts before they become obvious. The edge is in the information hierarchy, not
                     │  Autonomous · Persistent │
                     └───┬──────────┬──────────┘
                         │          │
-           ┌────────────▼──┐   ┌───▼───────────────┐
-           │  WHALE WATCH  │   │   WHEEL STRATEGY   │
-           │               │   │                    │
-           │ CapitalTrades │   │ Cash Secured Puts  │
-           │ 11 politicians│   │ → Assignment       │
-           │ ROC scoring   │   │ → Covered Calls    │
-           │ Auto-execute  │   │ 18 tickers / 7     │
-           └───────────────┘   │ policy sectors     │
-                               └────────────────────┘
+           ┌────────────▼──┐   ┌───▼────────────────────────────────┐
+           │ REGIME DETECT │   │          WHEEL STRATEGY             │
+           │               │   │                                     │
+           │ SPY intraday %│   │ Cash Secured Puts → Assignment      │
+           │ BULL/NEUTRAL  │   │ → Covered Calls · 18 tickers        │
+           │ BEAR/EXTREME  │   │ Position sizing: 6%/trade · 65% cap │
+           └───────┬───────┘   └─────────────────────────────────────┘
+                   │
+           ┌───────▼───────┐   ┌────────────────────────────────────┐
+           │ INVERSE HEDGE │   │          WHALE WATCH               │
+           │               │   │                                     │
+           │ BEAR → SQQQ   │   │ CapitalTrades · 11 politicians      │
+           │ EXTREME_BEAR  │   │ ROC scoring · Auto-execute          │
+           │ → 2× position │   │ Regime-gated sizing                 │
+           └───────────────┘   └─────────────────────────────────────┘
                         │
            ┌────────────▼──────────────────────────┐
            │           PROTECTIVE LOGIC             │
@@ -171,6 +177,8 @@ trading/
 │   ├── whale_watch.py           # CapitalTrades scraper + ROC scoring
 │   ├── wheel_strategy.py        # CSP/CC option leg management
 │   ├── protective_logic.py      # Trailing stops, gap protection, laddering
+│   ├── regime_detector.py       # SPY intraday regime (BULL/NEUTRAL/BEAR/EXTREME_BEAR)
+│   ├── inverse_etf_hedge.py     # Auto-buy/sell SQQQ based on regime
 │   ├── policy_monitor.py        # Policy intelligence scanner (L1–L4)
 │   ├── hardware_monitor.py      # CPU/temp threshold enforcement
 │   ├── notifier.py              # Resend email (noreply@cloudmagicgroup.com)
@@ -227,6 +235,9 @@ The system is designed to run indefinitely without human intervention:
 | CPU > 85% | Pause non-essential tasks → resume when clear |
 | API fails 3x | Halt all trading → critical email → wait for operator |
 | Daily at 4:15 PM ET | Email P&L report, position summary, whale watch log |
+| Every 2h during market | Status email: regime, SPY %, equity, wheel stats, positions |
+| SPY drops -2% intraday | BEAR regime: cut allocation 50%, tighten delta to 0.15, buy SQQQ |
+| SPY drops -4% intraday | EXTREME_BEAR: halt new entries, double SQQQ allocation |
 | System restart | Restore state from `logs/agent_state.json`, resume |
 
 ---

@@ -27,3 +27,6 @@ build/
 *.swp
 debug_*.py
 test_policy.py
+
+# Project refresh logs
+.project-refresh/
