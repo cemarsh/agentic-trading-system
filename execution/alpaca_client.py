@@ -114,13 +114,31 @@ class AlpacaClient:
 
 
 def verify():
+    """Standalone verify — reads ALPACA_* env vars directly, no full settings required."""
+    import os
+    from types import SimpleNamespace
+
+    key = os.environ.get("ALPACA_KEY")
+    secret = os.environ.get("ALPACA_SECRET")
+    base_url = os.environ.get("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+
+    if not key or not secret:
+        print("[FAIL] Alpaca API — ALPACA_KEY and ALPACA_SECRET not set in environment")
+        return False
+
+    stub = SimpleNamespace(
+        alpaca=SimpleNamespace(key=key, secret=secret, base_url=base_url, paper_mode="paper" in base_url)
+    )
+
     try:
-        client = AlpacaClient()
+        client = AlpacaClient(settings=stub)
         account = client.get_account()
-        mode = "PAPER" if client.cfg.alpaca.paper_mode else "LIVE"
+        mode = "PAPER" if stub.alpaca.paper_mode else "LIVE"
         print(f"[OK] Alpaca API — connected ({mode})")
-        print(f"     Equity: ${float(account.get('equity', 0)):,.2f}")
-        print(f"     Buying Power: ${float(account.get('buying_power', 0)):,.2f}")
+        print(f"     Account ID:    {account.get('id', '?')}")
+        print(f"     Equity:        ${float(account.get('equity', 0)):,.2f}")
+        print(f"     Buying Power:  ${float(account.get('buying_power', 0)):,.2f}")
+        print(f"     Status:        {account.get('status', '?')}")
         return True
     except Exception as e:
         print(f"[FAIL] Alpaca API — {e}")

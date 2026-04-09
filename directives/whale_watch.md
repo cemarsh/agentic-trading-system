@@ -40,4 +40,9 @@ Monitor politician trade disclosures. When a tracked trade meets the value thres
 - **Politician sells**: Side is "sell" — only enter if you hold the position already. Do not short.
 
 ## Anneal Log
-- (none yet)
+- **2026-04-09**: CapitalTrades page structure differs from assumed format. Real layout:
+  - `cell[0]`: `"NamePartyChambeerState"` — extract name by splitting on party keyword
+  - `cell[1]`: `"Company NameTICKER:US"` — extract ticker via regex `([A-Z]{1,5}):US`
+  - `cell[6]`: trade type `"buy"` or `"sell"`
+  - `cell[7]`: value range `"1K–15K"` — parse to midpoint float
+  - Non-equity instruments (treasuries, bonds) have `N/A` ticker — skip them

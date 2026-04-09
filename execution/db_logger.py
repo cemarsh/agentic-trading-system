@@ -92,6 +92,19 @@ def update_status(row_id: int, status: str, order_id: str = None, pnl: float = N
         conn.commit()
 
 
+class DBLogger:
+    """Class wrapper around standalone logging functions for use in market_loop."""
+
+    def __init__(self, settings=None):
+        self._settings = settings
+
+    def log_decision(self, **kwargs) -> int:
+        return log_decision(**kwargs, settings=self._settings)
+
+    def update_status(self, **kwargs):
+        return update_status(**kwargs, settings=self._settings)
+
+
 def ping(settings=None) -> bool:
     try:
         with get_connection(settings) as conn:

@@ -110,13 +110,8 @@ def load() -> Settings:
     if not alpaca_key or not alpaca_secret:
         raise EnvironmentError("ALPACA_KEY and ALPACA_SECRET must be set in environment")
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise EnvironmentError("DATABASE_URL must be set in environment")
-
-    resend_key = os.environ.get("RESEND_API_KEY")
-    if not resend_key:
-        raise EnvironmentError("RESEND_API_KEY must be set in environment")
+    database_url = os.environ.get("DATABASE_URL")  # optional — logging disabled if unset
+    resend_key = os.environ.get("RESEND_API_KEY")  # optional — email disabled if unset
 
     g = raw["guardrails"]
     paper_mode = g.get("paper_mode", True)
@@ -129,12 +124,12 @@ def load() -> Settings:
             paper_mode=paper_mode,
         ),
         database=DatabaseConfig(
-            url=database_url,
+            url=database_url or "",
             table=raw["database"]["table"],
             state_file=raw["database"]["state_file"],
         ),
         notifications=NotificationConfig(
-            resend_key=resend_key,
+            resend_key=resend_key or "",
             alert_email=os.environ.get("ALERT_EMAIL", raw["notifications"]["alert_email"]),
             daily_report_time=raw["notifications"]["daily_report_time"],
             timezone=raw["notifications"]["timezone"],

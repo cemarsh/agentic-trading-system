@@ -17,12 +17,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
 from execution.alpaca_client import AlpacaClient, verify as verify_alpaca
-from execution.db_logger import DBLogger, ping as ping_db, init_schema
-from execution.notifier import Notifier, test_send as test_email
 from execution.hardware_monitor import HardwareMonitor
 from execution.whale_watch import WhaleWatcher
 from execution.wheel_strategy import WheelStrategy
 from execution.protective_logic import ProtectiveLogic
+from execution.policy_monitor import PolicyMonitor
 
 STATE_PATH = Path("logs/agent_state.json")
 
@@ -76,12 +75,33 @@ def run(mode: str):
         sys.exit(1)
 
     alpaca = AlpacaClient(settings=cfg)
-    db = DBLogger(settings=cfg)
-    notifier = Notifier(settings=cfg)
+
+    # Optional services — degrade gracefully when not configured
+    db = None
+    if cfg.database.url:
+        try:
+            from execution.db_logger import DBLogger
+            db = DBLogger(settings=cfg)
+            print("[OK] PostgreSQL — connected")
+        except Exception as e:
+            print(f"[WARN] PostgreSQL unavailable — logging disabled ({e})")
+
+    notifier = None
+    if cfg.notifications.resend_key:
+        try:
+            from execution.notifier import Notifier
+            notifier = Notifier(settings=cfg)
+            print("[OK] Resend — email enabled")
+        except Exception as e:
+            print(f"[WARN] Resend unavailable — email disabled ({e})")
+    else:
+        print("[INFO] No RESEND_API_KEY — email alerts disabled")
+
     hw = HardwareMonitor(settings=cfg, notifier=notifier)
     whale = WhaleWatcher(settings=cfg, alpaca_client=alpaca)
     wheel = WheelStrategy(settings=cfg, alpaca_client=alpaca, db_logger=db)
     protection = ProtectiveLogic(settings=cfg, alpaca_client=alpaca, db_logger=db)
+    policy = PolicyMonitor(settings=cfg, notifier=notifier, db=db)
 
     print(f"[START] Trading loop active — {mode.upper()} mode — {datetime.now().isoformat()}")
 
@@ -157,6 +177,11 @@ def run(mode: str):
                     status="submitted",
                 )
 
+            # --- Policy Intelligence Monitor ---
+            policy_signals = policy.scan()
+            if policy_signals:
+                print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
+
             # --- Wheel Strategy ---
             wheel.run_cycle()
 
@@ -197,10 +222,11 @@ def run(mode: str):
             if state["api_failures"] >= cfg.guardrails.api_retry_limit:
                 state["halted"] = True
                 save_state(state)
-                notifier.critical_alert(
-                    f"Trading system HALTED after {cfg.guardrails.api_retry_limit} "
-                    f"consecutive failures.\n\nLast error: {e}"
-                )
+                if notifier:
+                    notifier.critical_alert(
+                        f"Trading system HALTED after {cfg.guardrails.api_retry_limit} "
+                        f"consecutive failures.\n\nLast error: {e}"
+                    )
                 print("[HALT] Critical failure threshold reached. System halted.")
                 sys.exit(1)
 

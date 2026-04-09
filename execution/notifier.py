@@ -24,7 +24,7 @@ class Notifier:
 
     def send(self, subject: str, body: str, is_html: bool = False):
         params = {
-            "from": "trading-system@resend.dev",
+            "from": "Trading System <noreply@cloudmagicgroup.com>",
             "to": [self.to],
             "subject": subject,
         }

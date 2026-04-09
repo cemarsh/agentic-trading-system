@@ -45,11 +45,16 @@
 
 ---
 
+## Active Strategy — April 2026 Tariff Regime
+
+**Regime**: High-volatility tariff selloff. Elevated IV = fat premiums. Defensive tilt.
+**Last Updated**: 2026-04-09
+
+---
+
 ## Learnings & Annealings
 
-_This section is updated by the agent when errors are encountered and fixed._
-
-- (none yet)
+- **2026-04-09**: CapitalTrades scraper cell indices wrong. Fixed: name=cell[0], ticker=cell[1] regex, type=cell[6], value=cell[7] range midpoint.
 
 ---
 

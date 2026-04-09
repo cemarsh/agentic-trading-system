@@ -52,23 +52,57 @@ class WhaleWatcher:
 
         tracked = [n.lower() for n in self.cfg.whale_watch.politician_names]
 
-        # Parse trade rows — structure may change; anneal if needed
+        def parse_name(raw: str) -> str:
+            """Extract name before party affiliation."""
+            for party in ("Democrat", "Republican", "Independent", "Libertarian"):
+                if party in raw:
+                    return raw.split(party)[0].strip()
+            return raw.strip()
+
+        def parse_ticker(raw: str) -> Optional[str]:
+            """Extract ticker from 'Company NameTICKER:US' format."""
+            m = re.search(r"([A-Z]{1,5}):US", raw)
+            return m.group(1) if m else None
+
+        def parse_value(raw: str) -> float:
+            """Parse range like '1K–15K' or '100K–250K' to midpoint float."""
+            def to_num(s: str) -> float:
+                s = s.strip().upper().replace(",", "")
+                if s.endswith("K"):
+                    return float(s[:-1]) * 1_000
+                if s.endswith("M"):
+                    return float(s[:-1]) * 1_000_000
+                return float(re.sub(r"[^\d.]", "", s) or "0")
+            parts = re.split(r"[–\-]", raw)
+            if len(parts) == 2:
+                return (to_num(parts[0]) + to_num(parts[1])) / 2
+            return to_num(parts[0])
+
+        # Real layout (verified 2026-04-09):
+        # cell[0]: "NamePartyChambeerState"
+        # cell[1]: "Company NameTICKER:US"
+        # cell[6]: trade type "buy"/"sell"
+        # cell[7]: value range "1K–15K"
         for row in soup.select("table tbody tr"):
             cells = [td.get_text(strip=True) for td in row.find_all("td")]
-            if len(cells) < 6:
+            if len(cells) < 8:
                 continue
 
-            politician_name = cells[0]
+            politician_name = parse_name(cells[0])
             if not any(t in politician_name.lower() for t in tracked):
                 continue
 
-            ticker = cells[2].upper()
-            raw_value = cells[4].replace("$", "").replace(",", "").strip()
-            trade_type = cells[3].lower()
+            ticker = parse_ticker(cells[1])
+            if not ticker:
+                continue  # bonds, treasuries, etc. — skip non-equity
+
+            trade_type = cells[6].lower().strip()
+            if trade_type not in ("buy", "sell"):
+                continue
 
             try:
-                value = float(re.sub(r"[^\d.]", "", raw_value.split("–")[0]))
-            except ValueError:
+                value = parse_value(cells[7])
+            except (ValueError, IndexError):
                 continue
 
             if value < self.cfg.whale_watch.whale_trade_min_value:
