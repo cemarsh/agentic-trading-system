@@ -1,0 +1,27 @@
+# Secrets
+.env
+*.key
+*.pem
+
+# Intermediate / generated
+.tmp/
+logs/agent_state.json
+logs/*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Editor
+.vscode/
+.idea/
+*.swp

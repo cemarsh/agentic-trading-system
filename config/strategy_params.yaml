@@ -1,0 +1,54 @@
+# ============================================================
+# TRADING SYSTEM — STRATEGY PARAMETERS
+# Edit these values to configure system behavior.
+# Placeholders marked [FILL_IN] must be set before going live.
+# ============================================================
+
+hardware:
+  cpu_threshold_pct: 85          # Pause non-essential tasks above this CPU %
+  temp_threshold_c: 80           # Alert and pause above this CPU temp (Celsius)
+  poll_interval_seconds: 30      # How often to sample hardware metrics
+
+intelligence:
+  min_confidence_score: 0.72     # Minimum advisor confidence to execute (0.0–1.0)
+
+whale_watch:
+  source_url: "https://www.google.com/search?q=capitaltrades.com"
+  politician_names:              # [FILL_IN] — List of names to track
+    - "Nancy Pelosi"
+    - "Dan Crenshaw"
+    - "Tommy Tuberville"
+  whale_trade_min_value: 50000   # Minimum $ trade value to act on
+  max_portfolio_pct_per_trade: 5 # Max % of portfolio per whale signal
+  roc_lookback_minutes: 5        # 1-min bars to compute Rate of Change
+
+wheel:
+  tickers:                       # High-liquidity tickers for the Wheel
+    - "AAPL"
+    - "NVDA"
+    - "SPY"
+  target_delta: 0.30             # Delta for Cash Secured Put entry
+  expiration_weeks: 2            # Weeks to expiration at entry
+  cc_strike_markup_pct: 2.0      # CC strike = cost_basis * (1 + this/100)
+  min_premium_pct: 0.5           # Skip if premium < this % of strike
+
+protection:
+  trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
+  gap_tighten_pct: 3.0           # Additional tightening on gap-down signal (%)
+  ladder_drop_pct: 5.0           # Drawdown % from entry to trigger ladder buy
+  ladder_buy_shares: 10          # Shares per ladder buy
+
+guardrails:
+  manual_confirm_threshold: 5000 # Orders above this $ require explicit CONFIRM
+  verification_trades: 5         # # of trades in manual verification period
+  api_retry_limit: 3             # Consecutive API failures before full halt
+  paper_mode: true               # Set false only when ready for live trading
+
+notifications:
+  alert_email: "[FILL_IN]"       # e.g. you@yourdomain.com
+  daily_report_time: "16:15"     # 4:15 PM local market time
+  timezone: "America/New_York"
+
+database:
+  table: "decision_logic"
+  state_file: "./logs/agent_state.json"
