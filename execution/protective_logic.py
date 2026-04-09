@@ -3,12 +3,17 @@ Protective Logic — trailing stops, gap protection, ladder buying.
 Applied to all equity positions on each loop tick.
 """
 
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Options symbols follow OCC format: TICKER + YYMMDD + C/P + 8-digit strike
+# e.g. PLTR260424P00132000 — skip these in equity protective logic
+_OPTIONS_SYMBOL_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
 
 from config import settings as cfg_module
 
@@ -31,10 +36,12 @@ class ProtectiveLogic:
         self._ladder_counts: Dict[str, int] = {}
 
     def sync_positions(self, alpaca_positions: list):
-        """Sync internal state from live Alpaca position data."""
+        """Sync internal state from live Alpaca position data. Skips options contracts."""
         prot = self.cfg.protection
         for p in alpaca_positions:
             ticker = p["symbol"]
+            if _OPTIONS_SYMBOL_RE.match(ticker):
+                continue  # options managed by wheel, not protective logic
             qty = int(p["qty"])
             current_price = float(p.get("current_price", p.get("avg_entry_price", 0)))
             entry = float(p.get("avg_entry_price", current_price))

@@ -38,7 +38,15 @@ class AlpacaClient:
             json=body,
             timeout=10,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            raise requests.HTTPError(
+                f"{resp.status_code} {resp.reason} — {detail} — url: {resp.url}",
+                response=resp,
+            )
         return resp.json()
 
     def get_account(self) -> dict:

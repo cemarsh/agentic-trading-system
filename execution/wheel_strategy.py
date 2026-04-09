@@ -54,8 +54,8 @@ class WheelStrategy:
         Without full options chain pricing, uses delta ≈ 0.30 → ~5-7% OTM.
         A real implementation should use the options chain from Alpaca.
         """
-        otm_pct = 1 - (self.cfg.wheel.target_delta * 0.15 + 0.90)
-        raw = current_price * otm_pct
+        otm_factor = self.cfg.wheel.target_delta * 0.15 + 0.90  # 0.25 delta → ~6.25% OTM
+        raw = current_price * otm_factor
         # Round to nearest $0.50
         return round(raw * 2) / 2
 
@@ -69,32 +69,77 @@ class WheelStrategy:
             print(f"[WHEEL] {ticker} already in stage {pos.stage}, skipping CSP open")
             return None
 
+        # --- Allocation guards ---
+        try:
+            account = self._alpaca.get_account()
+            equity = float(account.get("equity", 0))
+            initial_margin = float(account.get("initial_margin", 0))
+
+            # Guard 1: total wheel allocation cap
+            if equity > 0:
+                current_allocation_pct = initial_margin / equity * 100
+                if current_allocation_pct >= self.cfg.wheel.max_wheel_allocation_pct:
+                    print(
+                        f"[WHEEL] {ticker} — allocation cap reached "
+                        f"({current_allocation_pct:.1f}% >= {self.cfg.wheel.max_wheel_allocation_pct}%), skipping"
+                    )
+                    return None
+        except Exception as e:
+            print(f"[WHEEL] {ticker} — account check failed: {e}")
+            equity = 0
+
         bars = self._alpaca.get_bars(ticker, "1Min", 1)
         if not bars:
             return None
         current_price = bars[-1]["c"]
 
         strike = self.select_csp_strike(ticker, current_price)
+
+        # Guard 2: per-trade size limit (CSP collateral = strike × 100 shares)
+        if equity > 0:
+            max_collateral = equity * self.cfg.wheel.max_portfolio_pct_per_trade / 100
+            required_collateral = strike * 100
+            if required_collateral > max_collateral:
+                print(
+                    f"[WHEEL] {ticker} — position too large "
+                    f"(${required_collateral:,.0f} > ${max_collateral:,.0f} max), skipping"
+                )
+                return None
+
         expiry = self.target_expiry()
 
         contracts = self._alpaca.get_options_contracts(ticker, expiry)
-        target = next(
-            (c for c in contracts if c.get("type") == "put" and float(c.get("strike_price", 0)) == strike),
-            None,
-        )
-        if not target:
-            print(f"[WHEEL] {ticker} — no matching put contract at {strike} exp {expiry}")
+        puts = [c for c in contracts if c.get("type") == "put"]
+        if not puts:
+            print(f"[WHEEL] {ticker} — no put contracts available exp {expiry}")
             return None
 
-        order = self._alpaca.submit_option_order(
-            symbol=target["symbol"],
-            qty=1,
-            side="sell",
-            order_type="market",
-        )
+        # Use nearest available strike rather than exact match
+        target = min(puts, key=lambda c: abs(float(c.get("strike_price", 0)) - strike))
+        actual_strike = float(target.get("strike_price", 0))
+        max_deviation = strike * 0.08  # accept up to 8% off target
+        if abs(actual_strike - strike) > max_deviation:
+            print(
+                f"[WHEEL] {ticker} — nearest strike ${actual_strike} too far from "
+                f"target ${strike} (>{max_deviation:.0f}), skipping"
+            )
+            return None
+        if actual_strike != strike:
+            print(f"[WHEEL] {ticker} — using nearest strike ${actual_strike} (target was ${strike})")
+
+        try:
+            order = self._alpaca.submit_option_order(
+                symbol=target["symbol"],
+                qty=1,
+                side="sell",
+                order_type="market",
+            )
+        except Exception as e:
+            print(f"[WHEEL] {ticker} — order submission failed: {e}")
+            return None
 
         pos.stage = 1
-        pos.csp_strike = strike
+        pos.csp_strike = actual_strike
         pos.csp_expiry = expiry
 
         if self._db:
@@ -103,7 +148,7 @@ class WheelStrategy:
                 action="SELL_PUT",
                 tier="wheel",
                 confidence=0.9,
-                reasoning=f"Wheel Stage 1: CSP at ${strike} exp {expiry}, underlying ${current_price:.2f}",
+                reasoning=f"Wheel Stage 1: CSP at ${actual_strike} exp {expiry}, underlying ${current_price:.2f}",
                 order_id=order.get("id"),
                 status="pending",
             )
@@ -133,22 +178,28 @@ class WheelStrategy:
         expiry = self.target_expiry()
 
         contracts = self._alpaca.get_options_contracts(ticker, expiry)
-        target = next(
-            (c for c in contracts if c.get("type") == "call" and float(c.get("strike_price", 0)) == cc_strike),
-            None,
-        )
-        if not target:
-            print(f"[WHEEL] {ticker} — no matching call contract at {cc_strike} exp {expiry}")
+        calls = [c for c in contracts if c.get("type") == "call"]
+        if not calls:
+            print(f"[WHEEL] {ticker} — no call contracts available exp {expiry}")
             return None
 
-        order = self._alpaca.submit_option_order(
-            symbol=target["symbol"],
-            qty=1,
-            side="sell",
-            order_type="market",
-        )
+        target = min(calls, key=lambda c: abs(float(c.get("strike_price", 0)) - cc_strike))
+        actual_cc_strike = float(target.get("strike_price", 0))
+        if actual_cc_strike != cc_strike:
+            print(f"[WHEEL] {ticker} — CC using nearest strike ${actual_cc_strike} (target was ${cc_strike})")
 
-        pos.cc_strike = cc_strike
+        try:
+            order = self._alpaca.submit_option_order(
+                symbol=target["symbol"],
+                qty=1,
+                side="sell",
+                order_type="market",
+            )
+        except Exception as e:
+            print(f"[WHEEL] {ticker} — CC order submission failed: {e}")
+            return None
+
+        pos.cc_strike = actual_cc_strike
         pos.cc_expiry = expiry
 
         if self._db:
@@ -164,9 +215,13 @@ class WheelStrategy:
 
         return order
 
-    def run_cycle(self):
-        """Run one full Wheel cycle check across all tickers."""
+    def run_cycle(self) -> int:
+        """Run one full Wheel cycle check across all tickers. Returns count of contracts placed."""
+        placed = 0
         for ticker in self.cfg.wheel.tickers:
             pos = self._positions[ticker]
             if pos.stage == 0:
-                self.open_csp(ticker)
+                result = self.open_csp(ticker)
+                if result is not None:
+                    placed += 1
+        return placed
