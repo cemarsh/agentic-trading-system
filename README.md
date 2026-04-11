@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 1.2.0  
-**Last Updated**: 2026-04-09  
+**Version**: 1.3.0  
+**Last Updated**: 2026-04-11  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · ThinkPad P70 · Alpaca Markets
 
@@ -87,6 +87,63 @@ The system tracks and trades across every major policy-driven structural theme:
 
 ---
 
+## All-Weather Super Strategy
+
+The system now operates with a **regime-first decision framework** — no trade is placed without first identifying the current market regime and confirming the strategy matches it.
+
+### Regime Scanner (Run Before Every Session)
+
+| Signal | How to Read It |
+|--------|---------------|
+| SPY vs 200-day SMA | Above = Bull, Below = Bear |
+| VIX level | <15 Low, 15–25 Normal, >25 High |
+| SPY 10-day trend | Up / Down / Flat |
+| P/C ratio | Elevated = fear (sell premium), Low = complacency (hedge) |
+
+### 9-Regime Strategy Matrix
+
+| Regime | Optimal Strategy |
+|--------|-----------------|
+| Bull + Low IV | Aggressive CSPs — sell ATM, 30 DTE, full allocation |
+| Bull + Normal IV | Standard Wheel — CSP/CC cycle, 0.25–0.30 delta |
+| Bull + High IV | Iron condors — collect both sides, wider wings |
+| Sideways + Low IV | Calendar spreads — long vol, short front month |
+| Sideways + Normal IV | Iron condors — 0.20 delta both sides |
+| Sideways + High IV | Wide iron condors + Wheel on highest IV tickers |
+| Bear + Low IV | Defined risk only — no naked puts |
+| Bear + High IV | Bear call spreads + inverse ETF hedge (SQQQ) |
+| VIX spike >40 | Cash only — no new positions until VIX reverts |
+
+### Non-Negotiable Rules
+
+- **Close at 50% profit** — no exceptions, theta works for you after 50%
+- **Roll for net credit only** — if you can't collect credit, take the loss
+- **Max 2 rolls per position** — third attempt = close and move on
+- **No single position >5% of portfolio**
+- **Maintain ≥30% cash at all times**
+- **Defined-risk structures only** in Bear and VIX spike regimes
+
+### Mastery Refinement Loop
+
+After every closed trade: *Was the regime correct? Did the strategy match the regime? What rule was confirmed or challenged?* Every trade refines the system toward a compounding edge. Log findings in `MEM.md`.
+
+### Position Status Report Format
+
+Every position review must produce a structured 7-field report:
+
+1. **Price vs strike** — distance % OTM/ITM, trend direction
+2. **DTE** — days remaining, theta per day, % of contract elapsed
+3. **Premium** — entry credit, current value, % of max profit (CLOSE if ≥50%)
+4. **Breakeven** — strike ± premium, buffer above/below, widening or narrowing
+5. **Assignment risk** — LOW / MODERATE / HIGH / CRITICAL, adjusted cost basis
+6. **Delta / prob ITM** — current delta, probability ITM%, delta trend vs entry
+7. **Buying power** — $ reserved, % of BP, % of portfolio, within 5% limit?
+
+The master prompt for applying this framework in any AI session is saved at:
+`directives/all-weather-strategy-prompt.md`
+
+---
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
@@ -168,6 +225,7 @@ trading/
 │   ├── settings.py              # Centralized config loader
 │   └── strategy_params.yaml     # All tunable parameters
 ├── directives/                  # SOPs — living documents
+│   ├── all-weather-strategy-prompt.md  # Master prompt — apply in any AI session
 │   ├── whale_watch.md
 │   ├── wheel_strategy.md
 │   └── protective_logic.md
