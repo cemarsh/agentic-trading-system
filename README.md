@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 1.3.0  
-**Last Updated**: 2026-04-11  
+**Version**: 1.4.0  
+**Last Updated**: 2026-04-13  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · ThinkPad P70 · Alpaca Markets
 
@@ -144,6 +144,55 @@ The master prompt for applying this framework in any AI session is saved at:
 
 ---
 
+## Strategy Advisor (v1.4.0)
+
+The system now includes a **Claude-powered strategy analysis engine** that evaluates every ticker against all 10 strategies before the week begins.
+
+### 10 Strategies Applied to Every Ticker
+
+| # | Strategy | Key Signal |
+|---|----------|-----------|
+| 1 | Value Investing | P/E, CAPE, FCF yield, margin of safety |
+| 2 | Growth Investing | Revenue CAGR, gross margin trend, P/S ratio |
+| 3 | Momentum Trading | Relative strength, earnings surprise, volume |
+| 4 | Trend Following | 50/200 MA crossover, ADX, trend confirmation |
+| 5 | Mean Reversion | RSI extremes, Bollinger Bands, reversal candle |
+| 6 | Support & Resistance | 3+ touch levels, reaction candle confirmation |
+| 7 | Breakout Trading | Consolidation escape, volume >1.5× average |
+| 8 | Dividend Investing | Aristocrats, payout ratio <60%, FCF coverage |
+| 9 | Event-Driven | Earnings, catalysts, post-announcement drift |
+| 10 | Sector Rotation | Relative strength vs SPY, macro cycle phase |
+
+### Automated Cadence
+
+| Trigger | Action |
+|---------|--------|
+| Every Monday pre-market | Full scan of all 18 wheel tickers — ENTER/WATCH/AVOID per strategy + conviction score |
+| Every Monday | Weekly digest email — which strategies worked, which failed, key lessons |
+| 1st of every month | Monthly digest — pattern synthesis, regime alignment review, compounding insight |
+| Every closed trade | Lesson logged to `strategy_lessons` table for digest synthesis |
+
+### Risk Rules (Non-Negotiable)
+- Max risk per trade: **2% of portfolio equity**
+- Minimum Reward-to-Risk: **2:1**
+- Behavioral finance check on every thesis (herd, loss aversion, confirmation bias)
+
+```bash
+# Analyze a single ticker
+python execution/strategy_advisor.py --ticker PLTR
+
+# Run full weekly scan manually
+python execution/strategy_advisor.py --scan
+
+# Generate and send weekly digest
+python execution/strategy_advisor.py --weekly
+
+# Generate and send monthly digest
+python execution/strategy_advisor.py --monthly
+```
+
+---
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
@@ -226,12 +275,14 @@ trading/
 │   └── strategy_params.yaml     # All tunable parameters
 ├── directives/                  # SOPs — living documents
 │   ├── all-weather-strategy-prompt.md  # Master prompt — apply in any AI session
+│   ├── strategy_framework.md    # 10-strategy framework + lessons cadence
 │   ├── whale_watch.md
 │   ├── wheel_strategy.md
 │   └── protective_logic.md
 ├── execution/                   # Deterministic execution layer
-│   ├── market_loop.py           # Main orchestration loop (systemd managed)
-│   ├── alpaca_client.py         # Alpaca REST wrapper
+│   ├── market_loop.py           # Main orchestration loop (systemd managed, market-hours gated)
+│   ├── alpaca_client.py         # Alpaca REST wrapper (includes get_clock())
+│   ├── strategy_advisor.py      # Claude-powered 10-strategy analysis + lessons digest
 │   ├── whale_watch.py           # CapitalTrades scraper + ROC scoring
 │   ├── wheel_strategy.py        # CSP/CC option leg management
 │   ├── protective_logic.py      # Trailing stops, gap protection, laddering
@@ -240,7 +291,7 @@ trading/
 │   ├── policy_monitor.py        # Policy intelligence scanner (L1–L4)
 │   ├── hardware_monitor.py      # CPU/temp threshold enforcement
 │   ├── notifier.py              # Resend email (noreply@cloudmagicgroup.com)
-│   └── db_logger.py             # PostgreSQL decision_logic writer
+│   └── db_logger.py             # PostgreSQL — decision_logic, strategy_analysis, strategy_lessons
 └── tests/
     ├── test_alpaca_client.py
     ├── test_wheel_strategy.py
@@ -261,7 +312,8 @@ pip install -r requirements.txt
 # 2. Configure environment
 cp .env.example .env
 # Fill in: ALPACA_KEY, ALPACA_SECRET, ALPACA_BASE_URL,
-#          RESEND_API_KEY, ALERT_EMAIL, DATABASE_URL
+#          RESEND_API_KEY, ALERT_EMAIL, DATABASE_URL,
+#          ANTHROPIC_API_KEY (for strategy advisor)
 
 # 3. Configure strategy
 # Edit config/strategy_params.yaml — tickers, thresholds, politician watchlist
@@ -292,8 +344,12 @@ The system is designed to run indefinitely without human intervention:
 | CSP expiring worthless | Roll to next cycle or take assignment |
 | CPU > 85% | Pause non-essential tasks → resume when clear |
 | API fails 3x | Halt all trading → critical email → wait for operator |
+| Market closed (weekend/holiday) | Sleep until next_open via Alpaca clock API |
 | Daily at 4:15 PM ET | Email P&L report, position summary, whale watch log |
 | Every 2h during market | Status email: regime, SPY %, equity, wheel stats, positions |
+| Monday pre-market | Strategy scan: all 18 tickers rated ENTER/WATCH/AVOID with thesis |
+| Monday | Weekly lessons digest synthesized by Claude |
+| 1st of month | Monthly strategy review and compounding insight email |
 | SPY drops -2% intraday | BEAR regime: cut allocation 50%, tighten delta to 0.15, buy SQQQ |
 | SPY drops -4% intraday | EXTREME_BEAR: halt new entries, double SQQQ allocation |
 | System restart | Restore state from `logs/agent_state.json`, resume |

@@ -1,6 +1,6 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-04-09
+**Last Updated**: 2026-04-13
 **Status**: Live (Paper) — ThinkPad P70
 
 ---
@@ -37,6 +37,12 @@
 - [x] Status emails every 2 hours during market window (not just daily report)
 - [x] Regime-aware wheel: BEAR → delta 0.15, EXTREME_BEAR → skip all new entries
 - [x] Switched to acct3 (PKGIWVF62JODI7QGJO2CNQS7VX) with levers active
+- [x] Fixed market loop running on weekends — added Alpaca /v2/clock market hours gate
+- [x] Added 10-strategy framework directive (directives/strategy_framework.md)
+- [x] Built strategy_advisor.py — Claude-powered ticker analysis + lessons digest
+- [x] Weekly scan trigger (Monday pre-market) + monthly digest (1st of month)
+- [x] strategy_analysis + strategy_lessons PostgreSQL tables
+- [x] ANTHROPIC_API_KEY wired into settings.py and ThinkPad .env
 
 ---
 
@@ -70,8 +76,11 @@
 
 ## Near-Term Operational
 
-- [ ] Verify first properly-sized CSP orders fire at 9:30 AM ET 2026-04-10 on acct3 (eligible: MP, ABT, CCJ, PLTR, XOM, VST within $15k collateral)
+- [ ] Add ANTHROPIC_API_KEY to .env — needed to activate strategy_advisor weekly scan
+- [ ] Init new DB tables: `python execution/db_logger.py --init` (adds strategy_analysis + strategy_lessons)
+- [ ] Verify first properly-sized CSP orders fired on acct3 (eligible: MP, ABT, CCJ, PLTR, XOM, VST within $15k)
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender
 - [ ] Flip `paper_mode: false` after verifying 10+ autonomous paper trades
 - [ ] Add ThinkPad daily sync for ops-dashboard.json to include trading metrics
 - [ ] Add IV rank/percentile check before opening CSPs (only sell when rank > 30)
+- [ ] Log post-trade lessons to strategy_lessons table as positions close (wire into daily report)
