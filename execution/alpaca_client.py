@@ -109,6 +109,10 @@ class AlpacaClient:
             body["limit_price"] = str(limit_price)
         return self._post("/v2/orders", body)
 
+    def get_clock(self) -> dict:
+        """Returns market clock: is_open, next_open, next_close (ISO strings)."""
+        return self._get("/v2/clock")
+
     def compute_roc(self, ticker: str, lookback_minutes: int = 5) -> float:
         """Rate of Change over lookback_minutes 1-min bars."""
         bars = self.get_bars(ticker, "1Min", lookback_minutes + 1)

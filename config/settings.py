@@ -97,6 +97,11 @@ class HedgeConfig:
 
 
 @dataclass
+class AnthropicConfig:
+    api_key: str
+
+
+@dataclass
 class GuardrailsConfig:
     manual_confirm_threshold: float
     verification_trades: int
@@ -117,6 +122,7 @@ class Settings:
     guardrails: GuardrailsConfig
     regime: RegimeConfig
     hedge: HedgeConfig
+    anthropic: AnthropicConfig
 
 
 def load() -> Settings:
@@ -131,6 +137,7 @@ def load() -> Settings:
 
     database_url = os.environ.get("DATABASE_URL")  # optional — logging disabled if unset
     resend_key = os.environ.get("RESEND_API_KEY")  # optional — email disabled if unset
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")  # optional — advisor disabled if unset
 
     g = raw["guardrails"]
     paper_mode = g.get("paper_mode", True)
@@ -162,4 +169,5 @@ def load() -> Settings:
         guardrails=GuardrailsConfig(**g),
         regime=RegimeConfig(**raw["regime"]),
         hedge=HedgeConfig(**raw["hedge"]),
+        anthropic=AnthropicConfig(api_key=anthropic_key),
     )

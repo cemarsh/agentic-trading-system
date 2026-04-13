@@ -153,6 +153,15 @@ class Notifier:
         )
 
 
+    def strategy_digest(self, period: str, content: str):
+        label = "Weekly" if period == "weekly" else "Monthly"
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        self.send(
+            subject=f"[{label.upper()} REVIEW] Strategy Lessons — {date_str}",
+            body=f"{label} Strategy Review — {date_str}\n{'=' * 55}\n\n{content}",
+        )
+
+
 def test_send(settings=None):
     try:
         n = Notifier(settings)

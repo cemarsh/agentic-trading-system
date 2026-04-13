@@ -24,6 +24,7 @@ from execution.protective_logic import ProtectiveLogic
 from execution.policy_monitor import PolicyMonitor
 from execution.regime_detector import RegimeDetector
 from execution.inverse_etf_hedge import InverseETFHedge
+from execution.strategy_advisor import run_weekly_scan, generate_digest
 
 STATE_PATH = Path("logs/agent_state.json")
 
@@ -123,6 +124,21 @@ def run(mode: str):
             if hw.check_thresholds(metrics):
                 print("[HW] Threshold breach — pausing non-essential tasks for 60s")
                 time.sleep(60)
+                continue
+
+            # --- Market Hours Gate ---
+            clock = alpaca.get_clock()
+            if not clock.get("is_open"):
+                next_open_str = clock.get("next_open", "")
+                try:
+                    next_open = datetime.fromisoformat(next_open_str.replace("Z", "+00:00"))
+                    sleep_secs = max(60, (next_open - datetime.now(timezone.utc)).total_seconds())
+                    wake_at = next_open.strftime("%Y-%m-%d %H:%M UTC")
+                except Exception:
+                    sleep_secs = 3600
+                    wake_at = "unknown"
+                print(f"[MARKET] Closed — sleeping {sleep_secs/3600:.1f}h until {wake_at}")
+                time.sleep(sleep_secs)
                 continue
 
             # --- Sync Positions ---
@@ -290,6 +306,49 @@ def run(mode: str):
                 )
                 state["last_daily_report"] = now.date().isoformat()
                 save_state(state)
+
+            # --- Weekly Scan (Monday pre-market, once per week) ---
+            now_for_weekly = datetime.now(timezone.utc)
+            is_monday_premarket = (
+                now_for_weekly.weekday() == 0  # Monday
+                and now_for_weekly.hour < 14   # before 9:30 AM ET (14:00 UTC)
+            )
+            last_weekly = state.get("last_weekly_scan")
+            weekly_due = (
+                is_monday_premarket
+                and last_weekly != now_for_weekly.date().isoformat()
+            )
+            if weekly_due:
+                try:
+                    run_weekly_scan(alpaca, current_regime, settings=cfg, db=db, notifier=notifier)
+                    state["last_weekly_scan"] = now_for_weekly.date().isoformat()
+                    save_state(state)
+                    if db and notifier:
+                        lessons = db.get_lessons(days=7)
+                        digest_body = generate_digest("weekly", lessons, settings=cfg)
+                        notifier.strategy_digest("weekly", digest_body)
+                        print("[ADVISOR] Weekly digest sent")
+                except Exception as ae:
+                    print(f"[ADVISOR] Weekly scan error: {ae}")
+
+            # --- Monthly Digest (1st of month, once per month) ---
+            now_for_monthly = datetime.now(timezone.utc)
+            is_first_of_month = now_for_monthly.day == 1 and now_for_monthly.hour < 14
+            last_monthly = state.get("last_monthly_digest")
+            monthly_due = (
+                is_first_of_month
+                and last_monthly != now_for_monthly.strftime("%Y-%m")
+            )
+            if monthly_due and db and notifier:
+                try:
+                    lessons = db.get_lessons(days=30)
+                    digest_body = generate_digest("monthly", lessons, settings=cfg)
+                    notifier.strategy_digest("monthly", digest_body)
+                    state["last_monthly_digest"] = now_for_monthly.strftime("%Y-%m")
+                    save_state(state)
+                    print("[ADVISOR] Monthly digest sent")
+                except Exception as me:
+                    print(f"[ADVISOR] Monthly digest error: {me}")
 
             state["api_failures"] = 0
             save_state(state)

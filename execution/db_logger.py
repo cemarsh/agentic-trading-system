@@ -31,6 +31,36 @@ CREATE TABLE IF NOT EXISTS decision_logic (
     status      TEXT,
     pnl         FLOAT
 );
+
+CREATE TABLE IF NOT EXISTS strategy_analysis (
+    id                SERIAL PRIMARY KEY,
+    ts                TIMESTAMPTZ DEFAULT NOW(),
+    ticker            TEXT,
+    regime            TEXT,
+    primary_strategy  TEXT,
+    conviction        FLOAT,
+    recommendation    TEXT,
+    reasoning         TEXT,
+    entry_plan        TEXT,
+    stop_loss_price   FLOAT,
+    target_price      FLOAT,
+    reward_risk_ratio FLOAT,
+    invalidation      TEXT,
+    behavioral_check  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS strategy_lessons (
+    id              SERIAL PRIMARY KEY,
+    ts              TIMESTAMPTZ DEFAULT NOW(),
+    ticker          TEXT,
+    strategy_used   TEXT,
+    regime          TEXT,
+    entry_price     FLOAT,
+    exit_price      FLOAT,
+    pnl             FLOAT,
+    outcome         TEXT,
+    lesson          TEXT
+);
 """
 
 
@@ -92,6 +122,85 @@ def update_status(row_id: int, status: str, order_id: str = None, pnl: float = N
         conn.commit()
 
 
+def log_strategy_analysis(
+    ticker: str,
+    regime: str,
+    primary_strategy: str,
+    conviction: float,
+    recommendation: str,
+    reasoning: str,
+    entry_plan: str = "",
+    stop_loss_price: Optional[float] = None,
+    target_price: Optional[float] = None,
+    reward_risk_ratio: Optional[float] = None,
+    invalidation: str = "",
+    behavioral_check: str = "",
+    settings=None,
+) -> int:
+    cfg = settings or cfg_module.load()
+    with get_connection(cfg) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO strategy_analysis
+                    (ticker, regime, primary_strategy, conviction, recommendation,
+                     reasoning, entry_plan, stop_loss_price, target_price,
+                     reward_risk_ratio, invalidation, behavioral_check)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (ticker, regime, primary_strategy, conviction, recommendation,
+                 reasoning, entry_plan, stop_loss_price, target_price,
+                 reward_risk_ratio, invalidation, behavioral_check),
+            )
+            row_id = cur.fetchone()[0]
+        conn.commit()
+    return row_id
+
+
+def log_lesson(
+    ticker: str,
+    strategy_used: str,
+    regime: str,
+    outcome: str,
+    lesson: str,
+    entry_price: Optional[float] = None,
+    exit_price: Optional[float] = None,
+    pnl: Optional[float] = None,
+    settings=None,
+) -> int:
+    cfg = settings or cfg_module.load()
+    with get_connection(cfg) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO strategy_lessons
+                    (ticker, strategy_used, regime, entry_price, exit_price, pnl, outcome, lesson)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (ticker, strategy_used, regime, entry_price, exit_price, pnl, outcome, lesson),
+            )
+            row_id = cur.fetchone()[0]
+        conn.commit()
+    return row_id
+
+
+def get_lessons(days: int = 7, settings=None) -> list:
+    cfg = settings or cfg_module.load()
+    with get_connection(cfg) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT * FROM strategy_lessons
+                WHERE ts >= NOW() - INTERVAL '%s days'
+                ORDER BY ts DESC
+                """,
+                (days,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+
 class DBLogger:
     """Class wrapper around standalone logging functions for use in market_loop."""
 
@@ -103,6 +212,15 @@ class DBLogger:
 
     def update_status(self, **kwargs):
         return update_status(**kwargs, settings=self._settings)
+
+    def log_strategy_analysis(self, **kwargs) -> int:
+        return log_strategy_analysis(**kwargs, settings=self._settings)
+
+    def log_lesson(self, **kwargs) -> int:
+        return log_lesson(**kwargs, settings=self._settings)
+
+    def get_lessons(self, days: int = 7) -> list:
+        return get_lessons(days=days, settings=self._settings)
 
 
 def ping(settings=None) -> bool:
