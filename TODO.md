@@ -1,6 +1,6 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-04-13
+**Last Updated**: 2026-04-15
 **Status**: Live (Paper) — ThinkPad P70
 
 ---
@@ -84,3 +84,17 @@
 - [ ] Add ThinkPad daily sync for ops-dashboard.json to include trading metrics
 - [ ] Add IV rank/percentile check before opening CSPs (only sell when rank > 30)
 - [ ] Log post-trade lessons to strategy_lessons table as positions close (wire into daily report)
+
+## NotebookLM Trading Intelligence Bridge
+
+- [x] Directive added: directives/notebooklm-trading-bridge.md
+- [x] n8n workflow JSON added: n8n/notebooklm-trading-bridge.json
+- [x] DB schema migrated: trading_signals, research_briefs, workflow_runs tables live
+- [x] Workflow imported into OpenClaw n8n (workflow ID: G9zvI1EJwNidm9r3)
+- [x] ANTHROPIC_API_KEY wired into both ThinkPad and OpenClaw n8n containers
+- [x] PostgreSQL opened to OpenClaw (UFW rule, pg_hba.conf, trading user credentials)
+- [x] Supabase HTTP nodes replaced with n8n-nodes-base.postgres (Trading Postgres credential: DX2zMV9NOKTHzqH4)
+- [x] WEBHOOK_SECRET set in .env (9f506f5f...)
+- [x] End-to-end test PASSED: 4 signals extracted/scored/upserted, research_briefs + workflow_runs logged
+- [x] Webhook URL: http://localhost:5678/webhook/trading/research-intake (OpenClaw)
+- [ ] Configure Slack webhook (SLACK_WEBHOOK_URL) for high-conviction alerts (conviction >= 7)

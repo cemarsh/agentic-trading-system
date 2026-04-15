@@ -133,7 +133,7 @@ def run(mode: str):
                 try:
                     next_open = datetime.fromisoformat(next_open_str.replace("Z", "+00:00"))
                     sleep_secs = max(60, (next_open - datetime.now(timezone.utc)).total_seconds())
-                    wake_at = next_open.strftime("%Y-%m-%d %H:%M UTC")
+                    wake_at = next_open.strftime("%Y-%m-%d %H:%M ET")
                 except Exception:
                     sleep_secs = 3600
                     wake_at = "unknown"

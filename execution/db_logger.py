@@ -61,6 +61,57 @@ CREATE TABLE IF NOT EXISTS strategy_lessons (
     outcome         TEXT,
     lesson          TEXT
 );
+
+-- NotebookLM trading intelligence bridge tables
+CREATE TABLE IF NOT EXISTS research_briefs (
+    id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    content         TEXT NOT NULL,
+    source          VARCHAR(50) DEFAULT 'notebooklm',
+    signal_count    INT DEFAULT 0,
+    top_conviction  INT DEFAULT 0,
+    tickers_mentioned JSONB DEFAULT '[]',
+    processed_at    TIMESTAMPTZ DEFAULT NOW(),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS trading_signals (
+    id                  UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    ticker              VARCHAR(10) NOT NULL,
+    direction           VARCHAR(10) NOT NULL CHECK (direction IN ('bullish','bearish','neutral')),
+    thesis              TEXT NOT NULL,
+    source_type         VARCHAR(20) NOT NULL,
+    catalysts           JSONB DEFAULT '[]',
+    risk_factors        JSONB DEFAULT '[]',
+    sector              VARCHAR(50),
+    congressional_refs  JSONB DEFAULT '[]',
+    timeframe           VARCHAR(10),
+    conviction          INT NOT NULL CHECK (conviction BETWEEN 1 AND 10),
+    wheel_eligible      BOOLEAN DEFAULT false,
+    suggested_strategy  VARCHAR(10),
+    premium_environment VARCHAR(10),
+    source_brief_id     UUID REFERENCES research_briefs(id),
+    status              VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active','acted','expired','dismissed')),
+    acted_at            TIMESTAMPTZ,
+    notes               TEXT,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_signals_ticker     ON trading_signals(ticker);
+CREATE INDEX IF NOT EXISTS idx_signals_conviction ON trading_signals(conviction DESC);
+CREATE INDEX IF NOT EXISTS idx_signals_status     ON trading_signals(status);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id                 UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    workflow_name      VARCHAR(100) NOT NULL,
+    status             VARCHAR(20) NOT NULL CHECK (status IN ('success','error','partial')),
+    input_hash         VARCHAR(64),
+    signals_extracted  INT DEFAULT 0,
+    signals_upserted   INT DEFAULT 0,
+    error_message      TEXT,
+    duration_ms        INT,
+    created_at         TIMESTAMPTZ DEFAULT NOW()
+);
 """
 
 

@@ -1,0 +1,745 @@
+{
+  "name": "NotebookLM \u2192 Trading Intelligence Bridge",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trading/research-intake",
+        "authentication": "none",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Research Intake Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "trading-research-intake",
+      "notes": "POST /trading/research-intake\nHeader Auth: X-Webhook-Secret\nAccepts { content: string, source?: string }\nThis is the primary manual intake \u2014 paste NotebookLM research briefs here."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-payload-check",
+              "leftValue": "={{ $json.body.content }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            },
+            {
+              "id": "cond-length-check",
+              "leftValue": "={{ $json.body.content?.length || 0 }}",
+              "rightValue": 50,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "Rejects empty or too-short payloads. Content must be >50 chars to contain anything useful."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize NotebookLM / Google Docs output\nconst body = $input.first().json.body;\nconst content = body.content || body.text || body.research || '';\n\n// Strip common NotebookLM artifacts\nconst normalized = content\n  .replace(/\\[?\\d+\\]?(?=\\s)/g, '')           // footnote markers like [1] or 1\n  .replace(/Source:?\\s*\\d+/gi, '')             // \"Source: 3\" refs\n  .replace(/\\n{3,}/g, '\\n\\n')                 // collapse excessive newlines\n  .replace(/^\\s+|\\s+$/gm, '')                 // trim each line\n  .replace(/[\\u200B-\\u200D\\uFEFF]/g, '')      // zero-width chars\n  .trim();\n\nconst today = new Date().toISOString().split('T')[0];\n\nreturn [{\n  json: {\n    normalized_content: normalized,\n    char_count: normalized.length,\n    word_count: normalized.split(/\\s+/).length,\n    intake_timestamp: new Date().toISOString(),\n    intake_date: today,\n    source: body.source || 'notebooklm_manual'\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        240
+      ],
+      "notes": "Strips NotebookLM footnotes, source references, zero-width characters, and normalizes whitespace."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2048,\n  \"system\": \"You are a trading signal extraction engine for a wheel strategy (cash-secured puts, covered calls) portfolio.\\n\\nGiven a research brief, extract every actionable trading signal.\\n\\nFor each signal found, output:\\n- ticker: stock symbol (uppercase, e.g. AAPL)\\n- direction: \\\"bullish\\\" | \\\"bearish\\\" | \\\"neutral\\\"\\n- thesis: one-sentence rationale (max 120 chars)\\n- source_type: \\\"congressional\\\" | \\\"flow\\\" | \\\"fundamental\\\" | \\\"technical\\\" | \\\"macro\\\" | \\\"catalyst\\\"\\n- catalysts: array of upcoming events relevant to this signal\\n- risk_factors: array of risk items\\n- sector: GICS sector name\\n- congressional_refs: array of politician names if any congressional trading mentioned (empty array if none)\\n- timeframe: \\\"short\\\" (<30d) | \\\"medium\\\" (30-90d) | \\\"long\\\" (>90d)\\n\\nRespond ONLY with valid JSON. No markdown fences, no explanation, no preamble.\\nFormat: { \\\"signals\\\": [ { ... } ] }\\nIf no actionable signals found: { \\\"signals\\\": [] }\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Research brief content:\\n\\n\" + $json.normalized_content + \"\\n\\nDate context: \" + $json.intake_date\n    }\n  ]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Claude \u2014 Extract Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        240
+      ],
+      "notes": "First Claude pass: extracts structured trading signals from raw research text.\nUses claude-sonnet-4-20250514 for speed/cost balance.\nTimeout 30s. Auth via Header Auth credential (x-api-key).",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safe parse Claude extraction response\nconst data = $input.first().json;\n\n// Check for API errors\nif (data.error || !data.content || !data.content[0]) {\n  return [{\n    json: {\n      error: 'claude_api_error',\n      message: data.error?.message || 'No content in response',\n      signals: []\n    }\n  }];\n}\n\nconst raw = data.content[0].text;\ntry {\n  const cleaned = raw.replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  \n  // Validate structure\n  if (!Array.isArray(parsed.signals)) {\n    return [{ json: { error: 'invalid_structure', raw, signals: [] } }];\n  }\n  \n  return [{ json: parsed }];\n} catch(e) {\n  return [{ json: { error: 'parse_failed', message: e.message, raw, signals: [] } }];\n}"
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Parse Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        240
+      ],
+      "notes": "Safe JSON parse with fallback. Strips markdown fences if Claude includes them despite instructions."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-signals",
+              "leftValue": "={{ $json.signals?.length || 0 }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "cond-no-error",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Has Signals?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        240
+      ],
+      "notes": "Routes: signals found \u2192 scoring pipeline. No signals or error \u2192 skip to archive + log."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2048,\n  \"system\": \"You are a trading conviction scorer for a wheel strategy (cash-secured puts, covered calls) portfolio.\\n\\nScore each signal using this exact framework:\\n\\nSignal Strength Score (1-10):\\n+3  Committee member trading in their committee's sector\\n+2  Trade size > $100K or major institutional flow\\n+2  Multiple independent sources confirming same thesis\\n+1  Party-line consensus (bipartisan buying)\\n+1  Trade made before known catalyst\\n+1  Stock is in S&P 500 (liquid, good options market)\\n+1  IV Rank likely > 30 (rich premiums for selling)\\n-2  Stale data (> 30 days old or vague timing)\\n-1  Single unconfirmed source\\n-1  Earnings within 14 days (assignment risk for wheel)\\n\\nBase score is 3. Add/subtract from there. Clamp to 1-10 range.\\n\\nFor each signal, also assess:\\n- wheel_eligible: true if stock has liquid weekly/monthly options, market cap > $10B, and fundamentally sound enough to own at a discount\\n- suggested_strategy: \\\"CSP\\\" (bullish, sell cash-secured put) | \\\"CC\\\" (already own, sell covered call) | \\\"watch\\\" (interesting but wait for better entry) | \\\"avoid\\\" (bearish or too risky)\\n- premium_environment: \\\"rich\\\" (high IV, fat premiums) | \\\"fair\\\" (normal IV) | \\\"thin\\\" (low IV, not worth selling)\\n\\nRespond ONLY with valid JSON. No markdown fences, no explanation.\\nFormat: { \\\"scored_signals\\\": [ { ...all_original_fields, \\\"conviction\\\": N, \\\"wheel_eligible\\\": bool, \\\"suggested_strategy\\\": \\\"...\\\", \\\"premium_environment\\\": \\\"...\\\" } ] }\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Score these extracted trading signals:\\n\" + JSON.stringify($json.signals)\n    }\n  ]\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Claude \u2014 Score Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        180
+      ],
+      "notes": "Second Claude pass: applies Signal Strength framework scoring.\nScores 1-10 conviction, wheel eligibility, strategy suggestion, premium environment.\nSame auth credential as Extract node.",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safe parse Claude scoring response\nconst data = $input.first().json;\n\nif (data.error || !data.content || !data.content[0]) {\n  // Pass through original signals unscored rather than losing them\n  const originalSignals = $('Parse Extraction').first().json.signals || [];\n  return [{\n    json: {\n      error: 'scoring_failed',\n      scored_signals: originalSignals.map(s => ({\n        ...s,\n        conviction: 3,  // default base score\n        wheel_eligible: false,\n        suggested_strategy: 'watch',\n        premium_environment: 'fair',\n        scoring_error: true\n      }))\n    }\n  }];\n}\n\nconst raw = data.content[0].text;\ntry {\n  const cleaned = raw.replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  \n  if (!Array.isArray(parsed.scored_signals)) {\n    throw new Error('scored_signals not an array');\n  }\n  \n  return [{ json: parsed }];\n} catch(e) {\n  // Fallback: return unscored signals\n  const originalSignals = $('Parse Extraction').first().json.signals || [];\n  return [{\n    json: {\n      error: 'score_parse_failed',\n      scored_signals: originalSignals.map(s => ({\n        ...s,\n        conviction: 3,\n        wheel_eligible: false,\n        suggested_strategy: 'watch',\n        premium_environment: 'fair',\n        scoring_error: true\n      }))\n    }\n  }];\n}"
+      },
+      "id": "a1b2c3d4-0008-4000-8000-000000000008",
+      "name": "Parse Scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        180
+      ],
+      "notes": "Parse scored signals. Graceful degradation: if scoring fails, passes through original signals with default base score of 3 so data is never lost."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build ticker list for dedup query\nconst scored = $input.first().json.scored_signals || [];\nconst tickers = [...new Set(scored.map(s => s.ticker?.toUpperCase()).filter(Boolean))];\n\nreturn [{\n  json: {\n    scored_signals: scored,\n    tickers: tickers,\n    ticker_filter: tickers.join(',')\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0009-4000-8000-000000000009",
+      "name": "Prep Dedup Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        180
+      ],
+      "notes": "Extracts unique ticker list for the Supabase dedup lookup."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ticker, thesis, conviction, status FROM trading_signals WHERE ticker = ANY(string_to_array('{{ $json.ticker_filter }}', ',')) AND created_at >= NOW() - INTERVAL '7 days'",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0010-4000-8000-000000000010",
+      "name": "Dedup Check \u2014 Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        2260,
+        180
+      ],
+      "notes": "Checks for existing signals on the same tickers within the last 7 days.\nAuth: use a Header Auth credential with name=Authorization, value=Bearer {{SERVICE_KEY}}.\nThe apikey header uses the anon key.",
+      "credentials": {
+        "postgres": {
+          "id": "DX2zMV9NOKTHzqH4",
+          "name": "Trading Postgres"
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge scored signals with dedup results\nconst scoredData = $('Prep Dedup Query').first().json;\nconst scored = scoredData.scored_signals || [];\nconst existing = $('Dedup Check \u2014 Supabase').first().json;\n\n// Handle Supabase returning single object vs array\nconst existingArr = Array.isArray(existing) ? existing : (existing ? [existing] : []);\nconst existingKeys = new Set(\n  existingArr.map(e => (e.ticker + '|' + e.thesis).toLowerCase())\n);\n\nconst now = new Date().toISOString();\n\nconst validated = scored\n  .filter(s => {\n    // Required fields\n    if (!s.ticker || !s.direction || !s.thesis) return false;\n    if (typeof s.conviction !== 'number' || s.conviction < 1 || s.conviction > 10) return false;\n    return true;\n  })\n  .map(s => {\n    const key = (s.ticker + '|' + s.thesis).toLowerCase();\n    return {\n      ticker: s.ticker.toUpperCase().trim(),\n      direction: s.direction,\n      thesis: s.thesis.slice(0, 200),\n      source_type: s.source_type || 'fundamental',\n      catalysts: JSON.stringify(s.catalysts || []),\n      risk_factors: JSON.stringify(s.risk_factors || []),\n      sector: s.sector || 'Unknown',\n      congressional_refs: JSON.stringify(s.congressional_refs || []),\n      timeframe: s.timeframe || 'medium',\n      conviction: Math.min(10, Math.max(1, Math.round(s.conviction))),\n      wheel_eligible: s.wheel_eligible || false,\n      suggested_strategy: s.suggested_strategy || 'watch',\n      premium_environment: s.premium_environment || 'fair',\n      status: 'active',\n      updated_at: now,\n      _is_update: existingKeys.has(key)\n    };\n  });\n\nconst highConviction = validated.filter(s => s.conviction >= 7);\n\nreturn [{\n  json: {\n    signals: validated,\n    total: validated.length,\n    new_count: validated.filter(s => !s._is_update).length,\n    update_count: validated.filter(s => s._is_update).length,\n    high_conviction: highConviction,\n    high_conviction_count: highConviction.length,\n    tickers_processed: [...new Set(validated.map(s => s.ticker))]\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0011-4000-8000-000000000011",
+      "name": "Merge & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        180
+      ],
+      "notes": "Deduplicates against existing signals, validates required fields, normalizes data types for Supabase.\nJSONB fields (catalysts, risk_factors, congressional_refs) are JSON.stringified for the REST API.\nFlags is_update for upsert logic."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ 'INSERT INTO trading_signals (ticker, direction, thesis, source_type, catalysts, risk_factors, sector, congressional_refs, timeframe, conviction, wheel_eligible, suggested_strategy, premium_environment) VALUES ' + $json.signals.filter(s => !s._is_update).map(s => '(' + [JSON.stringify(s.ticker),JSON.stringify(s.direction),JSON.stringify(s.thesis),JSON.stringify(s.source_type)].join(',') + ',' + [JSON.stringify(JSON.stringify(s.catalysts||[])),JSON.stringify(JSON.stringify(s.risk_factors||[])),JSON.stringify(JSON.stringify(s.congressional_refs||[]))].join(',') + '::jsonb,' + [JSON.stringify(s.sector||''),JSON.stringify(s.timeframe||'')].join(',') + ',' + s.conviction + ',' + (s.wheel_eligible?'true':'false') + ',' + [JSON.stringify(s.suggested_strategy||''),JSON.stringify(s.premium_environment||'')].join(',') + ')').join(',') + ' ON CONFLICT DO NOTHING' }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0012-4000-8000-000000000012",
+      "name": "Upsert Signals \u2014 Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2700,
+        180
+      ],
+      "notes": "Upserts all validated signals into trading_signals table.\nPrefer: resolution=merge-duplicates handles the UNIQUE constraint on (ticker, thesis, created_at::date).\nAuth: same Header Auth credential as dedup (Authorization: Bearer SERVICE_KEY).",
+      "credentials": {
+        "postgres": {
+          "id": "DX2zMV9NOKTHzqH4",
+          "name": "Trading Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"INSERT INTO research_briefs (content, source, signal_count, top_conviction, tickers_mentioned) VALUES ('\" + $('Normalize Input').first().json.normalized_content.replace(/'/g,\"''\") + \"','\" + ($('Normalize Input').first().json.source||'notebooklm') + \"',\" + ($('Merge & Validate').first().json.total||0) + \",\" + (($('Merge & Validate').first().json.high_conviction||[]).reduce((m,s)=>Math.max(m,s.conviction||0),0)) + \",'\" + JSON.stringify(($('Merge & Validate').first().json.tickers_processed||[])).replace(/'/g,\"''\") + \"'::jsonb) RETURNING id\" }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0013-4000-8000-000000000013",
+      "name": "Archive Brief \u2014 Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2920,
+        180
+      ],
+      "notes": "Archives the raw research brief with metadata (signal count, top conviction, tickers mentioned).\nUsed for historical analysis and feedback loop tuning.",
+      "credentials": {
+        "postgres": {
+          "id": "DX2zMV9NOKTHzqH4",
+          "name": "Trading Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"INSERT INTO workflow_runs (workflow_name, status, signals_extracted, signals_upserted, duration_ms) VALUES ('notebooklm-trading-bridge', 'success', \" + ($('Merge & Validate').first().json.total||0) + \", \" + ($('Merge & Validate').first().json.new_count||0) + \", \" + (Date.now() - new Date($('Normalize Input').first().json.intake_timestamp).getTime()) + \")\" }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0014-4000-8000-000000000014",
+      "name": "Log Run \u2014 Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        3140,
+        180
+      ],
+      "notes": "Audit trail: logs workflow execution status, signal counts, duration, and input hash for dedup tracking.",
+      "credentials": {
+        "postgres": {
+          "id": "DX2zMV9NOKTHzqH4",
+          "name": "Trading Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-high-conviction",
+              "leftValue": "={{ $('Merge & Validate').first().json.high_conviction_count || 0 }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0015-4000-8000-000000000015",
+      "name": "High Conviction?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        180
+      ],
+      "notes": "Routes high-conviction signals (\u22657) to Slack alert. If none, skips straight to response."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: '\ud83c\udfaf *High-Conviction Trading Signals from NotebookLM Research*\\n\\n' + \n    ($('Merge & Validate').first().json.high_conviction || []).map(s => \n      '\u2022 *' + s.ticker + '* \u2014 Conviction: ' + s.conviction + '/10 \u2014 ' + s.suggested_strategy + '\\n  ' + s.thesis + '\\n  Sector: ' + s.sector + ' | Premium: ' + s.premium_environment + (s.wheel_eligible ? ' | \u2705 Wheel eligible' : '')\n    ).join('\\n\\n')\n}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "a1b2c3d4-0016-4000-8000-000000000016",
+      "name": "Slack Alert \u2014 High Conviction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3580,
+        120
+      ],
+      "notes": "Sends formatted Slack message for signals scoring \u22657 conviction.\nIncludes ticker, score, strategy, thesis, sector, premium environment, and wheel eligibility.\nOptional: replace with SMS via Twilio node if preferred."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build final webhook response\nconst mergeData = $('Merge & Validate').first().json;\n\nreturn [{\n  json: {\n    status: 'processed',\n    signals_extracted: mergeData.total,\n    signals_new: mergeData.new_count,\n    signals_updated: mergeData.update_count,\n    high_conviction: (mergeData.high_conviction || []).map(s => ({\n      ticker: s.ticker,\n      conviction: s.conviction,\n      direction: s.direction,\n      suggested_strategy: s.suggested_strategy,\n      wheel_eligible: s.wheel_eligible,\n      thesis: s.thesis\n    })),\n    tickers_processed: mergeData.tickers_processed,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0017-4000-8000-000000000017",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3800,
+        180
+      ],
+      "notes": "Constructs the final webhook response payload with signal summary, high-conviction highlights, and processing metadata."
+    },
+    {
+      "parameters": {
+        "jsCode": "// No signals found or extraction error \u2014 still archive and log\nreturn [{\n  json: {\n    status: 'processed',\n    signals_extracted: 0,\n    signals_new: 0,\n    signals_updated: 0,\n    high_conviction: [],\n    tickers_processed: [],\n    note: $json.error ? 'Extraction error: ' + $json.error : 'No actionable signals found in research brief',\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0018-4000-8000-000000000018",
+      "name": "No Signals Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        380
+      ],
+      "notes": "Handles the case where no signals were extracted (empty research or extraction error). Still returns a clean response."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"INSERT INTO research_briefs (content, source, signal_count, top_conviction, tickers_mentioned) VALUES ('\" + $('Normalize Input').first().json.normalized_content.replace(/'/g,\"''\") + \"','\" + ($('Normalize Input').first().json.source||'notebooklm') + \"',\" + ($('Merge & Validate').first().json.total||0) + \",\" + (($('Merge & Validate').first().json.high_conviction||[]).reduce((m,s)=>Math.max(m,s.conviction||0),0)) + \",'\" + JSON.stringify(($('Merge & Validate').first().json.tickers_processed||[])).replace(/'/g,\"''\") + \"'::jsonb) RETURNING id\" }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0019-4000-8000-000000000019",
+      "name": "Archive Brief (No Signals)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        380
+      ],
+      "notes": "Archives the research brief even when no signals were found \u2014 useful for tuning extraction prompts later.",
+      "credentials": {
+        "postgres": {
+          "id": "DX2zMV9NOKTHzqH4",
+          "name": "Trading Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ \"INSERT INTO workflow_runs (workflow_name, status, signals_extracted, signals_upserted, duration_ms) VALUES ('notebooklm-trading-bridge', 'success', \" + ($('Merge & Validate').first().json.total||0) + \", \" + ($('Merge & Validate').first().json.new_count||0) + \", \" + (Date.now() - new Date($('Normalize Input').first().json.intake_timestamp).getTime()) + \")\" }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0020-4000-8000-000000000020",
+      "name": "Log Run (No Signals)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        380
+      ],
+      "notes": "Logs the workflow run even when no signals found or an error occurred.",
+      "credentials": {
+        "postgres": {
+          "id": "DX2zMV9NOKTHzqH4",
+          "name": "Trading Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rejected payload \u2014 too short or missing\nreturn [{\n  json: {\n    status: 'rejected',\n    error: 'Payload content is missing or too short (minimum 50 characters)',\n    signals_extracted: 0,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0021-4000-8000-000000000021",
+      "name": "Reject Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        420
+      ],
+      "notes": "Returns 200 with rejection message when payload validation fails. Webhook still responds cleanly."
+    }
+  ],
+  "connections": {
+    "Research Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Claude \u2014 Extract Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude \u2014 Extract Signals": {
+      "main": [
+        [
+          {
+            "node": "Parse Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Extraction": {
+      "main": [
+        [
+          {
+            "node": "Has Signals?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Signals?": {
+      "main": [
+        [
+          {
+            "node": "Claude \u2014 Score Signals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Signals Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude \u2014 Score Signals": {
+      "main": [
+        [
+          {
+            "node": "Parse Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Scoring": {
+      "main": [
+        [
+          {
+            "node": "Prep Dedup Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Dedup Query": {
+      "main": [
+        [
+          {
+            "node": "Dedup Check \u2014 Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Check \u2014 Supabase": {
+      "main": [
+        [
+          {
+            "node": "Merge & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge & Validate": {
+      "main": [
+        [
+          {
+            "node": "Upsert Signals \u2014 Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Signals \u2014 Supabase": {
+      "main": [
+        [
+          {
+            "node": "Archive Brief \u2014 Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Brief \u2014 Supabase": {
+      "main": [
+        [
+          {
+            "node": "Log Run \u2014 Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Run \u2014 Supabase": {
+      "main": [
+        [
+          {
+            "node": "High Conviction?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Conviction?": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert \u2014 High Conviction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Alert \u2014 High Conviction": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Signals Response": {
+      "main": [
+        [
+          {
+            "node": "Archive Brief (No Signals)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Brief (No Signals)": {
+      "main": [
+        [
+          {
+            "node": "Log Run (No Signals)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "trading",
+      "id": "tag-trading-001"
+    },
+    {
+      "name": "notebooklm",
+      "id": "tag-nlm-001"
+    },
+    {
+      "name": "intelligence",
+      "id": "tag-intel-001"
+    }
+  ],
+  "meta": {
+    "instanceId": "cmsg-n8n-local"
+  },
+  "pinData": {},
+  "id": "e2fd4ce6-ba63-40f8-a085-0d3b59cdd911"
+}
