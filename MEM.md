@@ -54,6 +54,8 @@
 
 ## Learnings & Annealings
 
+- **2026-04-16**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
 - **2026-04-09**: CapitalTrades scraper cell indices wrong. Fixed: name=cell[0], ticker=cell[1] regex, type=cell[6], value=cell[7] range midpoint.
 
 ---

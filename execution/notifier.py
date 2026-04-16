@@ -161,6 +161,13 @@ class Notifier:
             body=f"{label} Strategy Review — {date_str}\n{'=' * 55}\n\n{content}",
         )
 
+    def daily_wrap_up(self, date_str: str, body: str):
+        """Send the full end-of-day journal synthesis (markdown)."""
+        self.send(
+            subject=f"[JOURNAL] Daily Wrap-Up — {date_str}",
+            body=body,
+        )
+
 
 def test_send(settings=None):
     try:

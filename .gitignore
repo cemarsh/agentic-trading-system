@@ -1,5 +1,6 @@
 # Secrets
 .env
+.env.bak.*
 *.key
 *.pem
 
@@ -7,6 +8,8 @@
 .tmp/
 logs/agent_state.json
 logs/*.log
+logs/insights/*.jsonl
+logs/policy_signal_cache.json
 
 # Python
 __pycache__/
