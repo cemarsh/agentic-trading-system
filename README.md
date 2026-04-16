@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 1.4.0  
-**Last Updated**: 2026-04-13  
+**Version**: 1.5.0  
+**Last Updated**: 2026-04-16  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · ThinkPad P70 · Alpaca Markets
 
@@ -193,6 +193,48 @@ python execution/strategy_advisor.py --monthly
 
 ---
 
+## Daily Journal (v1.5.0)
+
+Every trading day produces a permanent narrative record. Two tiers:
+
+1. **Raw intraday dump** — `logs/insights/YYYY-MM-DD.jsonl`. Append-only, structured. Any module calls `log_insight(source, category, insight, metadata)` as events happen. Already wired into whale_watch, policy scans, and regime transitions.
+
+2. **Synthesized EOD wrap-up** — `journal/YYYY-MM-DD.md`. Generated at 4:05+ PM ET once per trading day by Claude from the dump + `decision_logic`/`strategy_analysis`/`strategy_lessons` DB rows + policy cache + EOD account snapshot. Emailed via Resend and committed to the repo. Falls back to a deterministic template if `ANTHROPIC_API_KEY` is absent.
+
+### Sections every wrap-up contains
+
+1. **Daily Summary** — what happened, net direction, headline driver
+2. **Strategies Pursued** — which tiers fired and what they did
+3. **Signals Observed** — Policy / Whale / Research breakdown
+4. **Decisions & Trades** — table of every executed action
+5. **Insights & Lessons** — synthesized learning (Observation / Confirmation / Challenge / Pattern)
+6. **What Changes Tomorrow** — specific, actionable carryforward
+
+### Self-annealing loop
+
+When a "What Changes Tomorrow" bullet recurs across 3+ days, promote it:
+- Numeric → `config/strategy_params.yaml`
+- Process → `directives/*.md`
+- Mechanical → new check in the relevant execution script
+
+```bash
+# Log an ad-hoc insight
+python execution/daily_journal.py --log "Tariff news moved semis -4% in 20min" --source manual --category observation
+
+# Force-generate today's wrap-up
+python execution/daily_journal.py --wrap-up
+
+# Regenerate a past day (idempotent)
+python execution/daily_journal.py --wrap-up --date 2026-04-15
+
+# Print today's raw dump
+python execution/daily_journal.py --show
+```
+
+See `directives/daily_journal.md` for the full SOP.
+
+---
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
@@ -344,8 +386,8 @@ The system is designed to run indefinitely without human intervention:
 | CSP expiring worthless | Roll to next cycle or take assignment |
 | CPU > 85% | Pause non-essential tasks → resume when clear |
 | API fails 3x | Halt all trading → critical email → wait for operator |
-| Market closed (weekend/holiday) | Sleep until next_open via Alpaca clock API |
-| Daily at 4:15 PM ET | Email P&L report, position summary, whale watch log |
+| Market closed (weekend/holiday) | Cap sleep at 5min so scheduled tasks keep firing (daily wrap-up, Monday scan, monthly digest) |
+| After close (once per trading day, 4:05+ PM ET) | Email P&L report + Claude-synthesized daily journal wrap-up; commit journal file |
 | Every 2h during market | Status email: regime, SPY %, equity, wheel stats, positions |
 | Monday pre-market | Strategy scan: all 18 tickers rated ENTER/WATCH/AVOID with thesis |
 | Monday | Weekly lessons digest synthesized by Claude |

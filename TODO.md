@@ -1,6 +1,6 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-04-15
+**Last Updated**: 2026-04-16
 **Status**: Live (Paper) — ThinkPad P70
 
 ---
@@ -43,6 +43,11 @@
 - [x] Weekly scan trigger (Monday pre-market) + monthly digest (1st of month)
 - [x] strategy_analysis + strategy_lessons PostgreSQL tables
 - [x] ANTHROPIC_API_KEY wired into settings.py and ThinkPad .env
+- [x] **Daily journal system** (2026-04-16) — intraday insight dump (`logs/insights/*.jsonl`) + Claude-synthesized EOD wrap-up (`journal/*.md`) emailed after daily report
+- [x] **Scheduler fix** (2026-04-16) — `run_scheduled_tasks()` runs regardless of market state; pin report day to last-open-day (ET); cap closed-market sleep to 5min so triggers keep ticking
+- [x] **realized_pnl bug fix** (2026-04-16) — was `last_equity - last_equity` (always 0), now `equity - last_equity`
+- [x] First daily report + journal wrap-up emailed end-to-end on ThinkPad (trading day 2026-04-15)
+- [x] Add ANTHROPIC_API_KEY + RESEND_API_KEY + ALERT_EMAIL to WSL .env (synced from ThinkPad)
 
 ---
 
@@ -76,14 +81,17 @@
 
 ## Near-Term Operational
 
-- [ ] Add ANTHROPIC_API_KEY to .env — needed to activate strategy_advisor weekly scan
-- [ ] Init new DB tables: `python execution/db_logger.py --init` (adds strategy_analysis + strategy_lessons)
+- [x] Add ANTHROPIC_API_KEY to .env — needed to activate strategy_advisor weekly scan (done on ThinkPad + WSL)
+- [ ] Init new DB tables on ThinkPad: `python execution/db_logger.py --init` (adds strategy_analysis + strategy_lessons + research_briefs + trading_signals)
 - [ ] Verify first properly-sized CSP orders fired on acct3 (eligible: MP, ABT, CCJ, PLTR, XOM, VST within $15k)
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender
 - [ ] Flip `paper_mode: false` after verifying 10+ autonomous paper trades
 - [ ] Add ThinkPad daily sync for ops-dashboard.json to include trading metrics
 - [ ] Add IV rank/percentile check before opening CSPs (only sell when rank > 30)
 - [ ] Log post-trade lessons to strategy_lessons table as positions close (wire into daily report)
+- [ ] **Regime detector bug**: `[REGIME] Detection error: object of type 'NoneType' has no len()` — returns NEUTRAL fallback, degrading wrap-up quality. Debug Alpaca bars response when market closed.
+- [ ] Extend `log_insight()` hooks to wheel entries/exits, hedge adjustments, protective stops (currently only whale_watch, policy, regime transitions)
+- [ ] Promote recurring "What Changes Tomorrow" bullets from journal into config/strategy_params.yaml or directives (manual review weekly)
 
 ## NotebookLM Trading Intelligence Bridge
 
