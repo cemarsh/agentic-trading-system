@@ -13,6 +13,12 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+try:
+    from zoneinfo import ZoneInfo
+    MARKET_TZ = ZoneInfo("America/New_York")
+except ImportError:
+    MARKET_TZ = timezone.utc
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
@@ -25,6 +31,7 @@ from execution.policy_monitor import PolicyMonitor
 from execution.regime_detector import RegimeDetector
 from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
+from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
 
 STATE_PATH = Path("logs/agent_state.json")
 
@@ -48,6 +55,119 @@ def save_state(state: dict):
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2, default=str)
+
+
+def run_scheduled_tasks(
+    state: dict,
+    cfg,
+    alpaca,
+    notifier,
+    hw,
+    db,
+    positions: list,
+    whale_hits_session: list,
+    current_regime: str,
+    mode: str,
+) -> None:
+    """
+    Fire time-based triggers (daily report + journal, weekly scan, monthly digest).
+    Runs every loop iteration regardless of market open/closed — each trigger
+    self-gates on ET clock and per-period dedup keys in state.
+    """
+    now_et = datetime.now(MARKET_TZ)
+    today_et = now_et.date().isoformat()
+
+    # --- Daily report + journal wrap-up ---
+    # Report day is the last day the market was actually open (per last_status_report),
+    # NOT "today" — this handles the case where service was sleeping past 4 PM ET and
+    # it's now past midnight. We fire once per trading day, after 4:05 PM ET of that day.
+    last_sr = state.get("last_status_report")
+    report_day = None
+    daily_due = False
+    if last_sr:
+        try:
+            last_sr_et = datetime.fromisoformat(last_sr).astimezone(MARKET_TZ)
+            report_day = last_sr_et.date().isoformat()
+            min_report_time = last_sr_et.replace(hour=16, minute=5, second=0, microsecond=0)
+            past_close_for_that_day = now_et >= min_report_time
+            daily_due = (
+                past_close_for_that_day
+                and state.get("last_daily_report") != report_day
+            )
+        except Exception as e:
+            print(f"[DAILY] last_status_report parse error: {e}")
+
+    if daily_due and notifier:
+        try:
+            account = alpaca.get_account() if alpaca else {}
+            equity = float(account.get("equity", 0) or 0)
+            last_equity = float(account.get("last_equity", 0) or 0)
+            realized_pnl = equity - last_equity  # day change vs prior close
+            unrealized_pnl = sum(float(p.get("unrealized_pl", 0)) for p in (positions or []))
+            avg = hw.averages() if hw else {"cpu_avg": 0.0, "temp_avg": 0.0}
+            notifier.daily_report(
+                realized_pnl=realized_pnl,
+                unrealized_pnl=unrealized_pnl,
+                positions=positions or [],
+                cpu_avg=avg["cpu_avg"],
+                temp_avg=avg["temp_avg"],
+                whale_hits=[f"{t.politician} → {t.ticker}" for t in (whale_hits_session or [])],
+            )
+            state["last_daily_report"] = report_day
+            print(f"[DAILY] Report sent for trading day {report_day} at {now_et.strftime('%Y-%m-%d %H:%M ET')}")
+            save_state(state)
+        except Exception as e:
+            print(f"[DAILY] report failed: {e}")
+
+        # Journal wrap-up immediately after — pin to the trading day being reported
+        try:
+            from datetime import date as _date
+            journal_wrap_up(
+                target_date=_date.fromisoformat(report_day),
+                alpaca_client=alpaca,
+                regime=current_regime,
+                notifier=notifier,
+                settings=cfg,
+            )
+        except Exception as je:
+            print(f"[JOURNAL] wrap-up failed: {je}")
+
+    # --- Weekly scan (Monday pre-market, before 9:30 ET) ---
+    is_monday_premarket = (
+        now_et.weekday() == 0
+        and (now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30))
+    )
+    weekly_due = is_monday_premarket and state.get("last_weekly_scan") != today_et
+    if weekly_due:
+        try:
+            run_weekly_scan(alpaca, current_regime, settings=cfg, db=db, notifier=notifier)
+            state["last_weekly_scan"] = today_et
+            save_state(state)
+            if db and notifier:
+                lessons = db.get_lessons(days=7)
+                digest_body = generate_digest("weekly", lessons, settings=cfg)
+                notifier.strategy_digest("weekly", digest_body)
+                print("[ADVISOR] Weekly digest sent")
+        except Exception as ae:
+            print(f"[ADVISOR] Weekly scan error: {ae}")
+
+    # --- Monthly digest (1st of month, before 9:30 ET) ---
+    is_first_premarket = (
+        now_et.day == 1
+        and (now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30))
+    )
+    month_key = now_et.strftime("%Y-%m")
+    monthly_due = is_first_premarket and state.get("last_monthly_digest") != month_key
+    if monthly_due and db and notifier:
+        try:
+            lessons = db.get_lessons(days=30)
+            digest_body = generate_digest("monthly", lessons, settings=cfg)
+            notifier.strategy_digest("monthly", digest_body)
+            state["last_monthly_digest"] = month_key
+            save_state(state)
+            print("[ADVISOR] Monthly digest sent")
+        except Exception as me:
+            print(f"[ADVISOR] Monthly digest error: {me}")
 
 
 def verify_all(cfg) -> bool:
@@ -129,15 +249,27 @@ def run(mode: str):
             # --- Market Hours Gate ---
             clock = alpaca.get_clock()
             if not clock.get("is_open"):
+                # Market closed: still run scheduled tasks (daily wrap-up after close,
+                # weekly scan Monday pre-market, monthly digest 1st pre-market), then
+                # short-sleep so those triggers get a chance to fire on time.
+                run_scheduled_tasks(
+                    state=state, cfg=cfg, alpaca=alpaca, notifier=notifier, hw=hw, db=db,
+                    positions=alpaca.get_positions() or [],
+                    whale_hits_session=whale_hits_session,
+                    current_regime=current_regime,
+                    mode=mode,
+                )
                 next_open_str = clock.get("next_open", "")
                 try:
                     next_open = datetime.fromisoformat(next_open_str.replace("Z", "+00:00"))
-                    sleep_secs = max(60, (next_open - datetime.now(timezone.utc)).total_seconds())
+                    secs_until_open = (next_open - datetime.now(timezone.utc)).total_seconds()
+                    # Cap at 5 min so scheduled triggers keep checking
+                    sleep_secs = max(60, min(secs_until_open, 300))
                     wake_at = next_open.strftime("%Y-%m-%d %H:%M ET")
                 except Exception:
-                    sleep_secs = 3600
+                    sleep_secs = 300
                     wake_at = "unknown"
-                print(f"[MARKET] Closed — sleeping {sleep_secs/3600:.1f}h until {wake_at}")
+                print(f"[MARKET] Closed — sleeping {sleep_secs:.0f}s (next open {wake_at})")
                 time.sleep(sleep_secs)
                 continue
 
@@ -158,7 +290,15 @@ def run(mode: str):
                     protection.execute_ladder(ticker)
 
             # --- Regime Detection ---
+            prev_regime = current_regime
             current_regime = regime.detect()
+            if prev_regime != current_regime:
+                log_insight(
+                    source="regime",
+                    category="observation",
+                    insight=f"Regime transition: {prev_regime} → {current_regime} (SPY {regime.spy_change_pct:+.2f}%)",
+                    metadata={"from": prev_regime, "to": current_regime, "spy_change_pct": regime.spy_change_pct},
+                )
 
             # --- Whale Watch ---
             try:
@@ -208,6 +348,25 @@ def run(mode: str):
                     side = "buy" if trade.trade_type == "purchase" else "sell"
                     print(f"[WHALE] {side.upper()} {qty}x {trade.ticker} @ ~${price:.2f}  ({trade.politician})")
                     alpaca.submit_order(trade.ticker, qty, side)
+                    log_insight(
+                        source="whale_watch",
+                        category="decision",
+                        insight=(
+                            f"{side.upper()} {qty}x {trade.ticker} @ ~${price:.2f} "
+                            f"following {trade.politician} {trade.trade_type} "
+                            f"${trade.trade_value:,.0f} (ROC {trade.roc_pct:.2f}%)"
+                        ),
+                        metadata={
+                            "ticker": trade.ticker,
+                            "qty": qty,
+                            "side": side,
+                            "price": price,
+                            "politician": trade.politician,
+                            "trade_value": trade.trade_value,
+                            "roc_pct": trade.roc_pct,
+                            "confidence": trade.confidence,
+                        },
+                    )
                     if db:
                         db.log_decision(
                             ticker=trade.ticker,
@@ -229,9 +388,22 @@ def run(mode: str):
                 policy_feed_ok = True
                 if policy_signals:
                     print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
+                    for sig in policy_signals:
+                        log_insight(
+                            source="policy",
+                            category="signal",
+                            insight=str(sig)[:300] if not isinstance(sig, dict)
+                                    else sig.get("title") or sig.get("headline") or str(sig)[:300],
+                            metadata=sig if isinstance(sig, dict) else {"raw": str(sig)},
+                        )
             except Exception as pe:
                 policy_feed_ok = False
                 print(f"[POLICY] scan error: {pe}")
+                log_insight(
+                    source="policy",
+                    category="error",
+                    insight=f"policy scan error: {pe}",
+                )
 
             # --- Wheel Strategy ---
             wheel_tickers_scanned = len(cfg.wheel.tickers)
@@ -286,69 +458,14 @@ def run(mode: str):
                 print(f"[STATUS] Status report sent at {now.strftime('%H:%M UTC')}")
                 save_state(state)
 
-            # --- Daily Report ---
-            now = datetime.now(timezone.utc)
-            report_due = (
-                now.hour == 21  # 4:15 PM EST = 21:15 UTC
-                and now.minute >= 15
-                and state.get("last_daily_report") != now.date().isoformat()
+            # --- Scheduled tasks (daily report + journal, weekly, monthly) ---
+            run_scheduled_tasks(
+                state=state, cfg=cfg, alpaca=alpaca, notifier=notifier, hw=hw, db=db,
+                positions=positions,
+                whale_hits_session=whale_hits_session,
+                current_regime=current_regime,
+                mode=mode,
             )
-            if report_due:
-                avg = hw.averages()
-                account = alpaca.get_account()
-                notifier.daily_report(
-                    realized_pnl=float(account.get("last_equity", 0)) - float(account.get("last_equity", 0)),
-                    unrealized_pnl=sum(float(p.get("unrealized_pl", 0)) for p in positions),
-                    positions=positions,
-                    cpu_avg=avg["cpu_avg"],
-                    temp_avg=avg["temp_avg"],
-                    whale_hits=[f"{t.politician} → {t.ticker}" for t in whale_hits],
-                )
-                state["last_daily_report"] = now.date().isoformat()
-                save_state(state)
-
-            # --- Weekly Scan (Monday pre-market, once per week) ---
-            now_for_weekly = datetime.now(timezone.utc)
-            is_monday_premarket = (
-                now_for_weekly.weekday() == 0  # Monday
-                and now_for_weekly.hour < 14   # before 9:30 AM ET (14:00 UTC)
-            )
-            last_weekly = state.get("last_weekly_scan")
-            weekly_due = (
-                is_monday_premarket
-                and last_weekly != now_for_weekly.date().isoformat()
-            )
-            if weekly_due:
-                try:
-                    run_weekly_scan(alpaca, current_regime, settings=cfg, db=db, notifier=notifier)
-                    state["last_weekly_scan"] = now_for_weekly.date().isoformat()
-                    save_state(state)
-                    if db and notifier:
-                        lessons = db.get_lessons(days=7)
-                        digest_body = generate_digest("weekly", lessons, settings=cfg)
-                        notifier.strategy_digest("weekly", digest_body)
-                        print("[ADVISOR] Weekly digest sent")
-                except Exception as ae:
-                    print(f"[ADVISOR] Weekly scan error: {ae}")
-
-            # --- Monthly Digest (1st of month, once per month) ---
-            now_for_monthly = datetime.now(timezone.utc)
-            is_first_of_month = now_for_monthly.day == 1 and now_for_monthly.hour < 14
-            last_monthly = state.get("last_monthly_digest")
-            monthly_due = (
-                is_first_of_month
-                and last_monthly != now_for_monthly.strftime("%Y-%m")
-            )
-            if monthly_due and db and notifier:
-                try:
-                    lessons = db.get_lessons(days=30)
-                    digest_body = generate_digest("monthly", lessons, settings=cfg)
-                    notifier.strategy_digest("monthly", digest_body)
-                    state["last_monthly_digest"] = now_for_monthly.strftime("%Y-%m")
-                    save_state(state)
-                    print("[ADVISOR] Monthly digest sent")
-                except Exception as me:
-                    print(f"[ADVISOR] Monthly digest error: {me}")
 
             state["api_failures"] = 0
             save_state(state)
