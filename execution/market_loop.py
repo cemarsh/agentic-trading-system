@@ -34,6 +34,9 @@ from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
 
 STATE_PATH = Path("logs/agent_state.json")
+HALT_ALERT_PATH = Path("logs/halt_pending_alert.json")
+# DNS/connection blips tolerated for ~10 min (20 × 30s) before halting
+NETWORK_FAILURE_HALT_THRESHOLD = 20
 
 INITIAL_STATE = {
     "verification_trades_done": 0,
@@ -42,6 +45,40 @@ INITIAL_STATE = {
     "last_daily_report": None,
     "last_status_report": None,
 }
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """True for transient DNS/connectivity errors — distinct from real API failures."""
+    msg = str(exc).lower()
+    return (
+        "name resolution" in msg
+        or "network is unreachable" in msg
+        or "connection refused" in msg
+        or "connection reset" in msg
+        or "max retries exceeded" in msg
+        or "errno -3" in msg
+        or "failed to establish a new connection" in msg
+    )
+
+
+def _flush_pending_halt_alert(notifier) -> None:
+    """Send a halt alert that was saved to disk when the network was down at halt time."""
+    if not HALT_ALERT_PATH.exists() or not notifier:
+        return
+    try:
+        with open(HALT_ALERT_PATH) as f:
+            pending = json.load(f)
+        notifier.critical_alert(
+            f"[DELAYED ALERT] Trading system halted at {pending.get('halted_at', 'unknown')} "
+            f"after {pending.get('failure_label', '? failures')}.\n\n"
+            f"Last error: {pending.get('last_error', 'unknown')}\n\n"
+            f"The original alert could not be delivered (network error at halt time). "
+            f"System has recovered and restarted."
+        )
+        HALT_ALERT_PATH.unlink()
+        print("[ALERT] Delayed halt alert delivered")
+    except Exception as e:
+        print(f"[ALERT] Failed to send delayed halt alert: {e}")
 
 
 def load_state() -> dict:
@@ -228,6 +265,9 @@ def run(mode: str):
     policy = PolicyMonitor(settings=cfg, notifier=notifier, db=db)
     regime = RegimeDetector(settings=cfg, alpaca_client=alpaca)
     hedge = InverseETFHedge(settings=cfg, alpaca_client=alpaca, db_logger=db)
+
+    # Send any halt alert that was queued when the network was down at halt time
+    _flush_pending_halt_alert(notifier)
 
     print(f"[START] Trading loop active — {mode.upper()} mode — {datetime.now().isoformat()}")
 
@@ -468,6 +508,7 @@ def run(mode: str):
             )
 
             state["api_failures"] = 0
+            state["network_failures"] = 0
             save_state(state)
             time.sleep(60)
 
@@ -477,22 +518,50 @@ def run(mode: str):
             break
 
         except Exception as e:
-            state["api_failures"] = state.get("api_failures", 0) + 1
-            print(f"[ERROR] {e} (failure #{state['api_failures']})")
-
-            if state["api_failures"] >= cfg.guardrails.api_retry_limit:
-                state["halted"] = True
+            if _is_network_error(e):
+                state["network_failures"] = state.get("network_failures", 0) + 1
+                nf = state["network_failures"]
+                print(f"[NET] Network error #{nf}/{NETWORK_FAILURE_HALT_THRESHOLD}: {e}")
                 save_state(state)
-                if notifier:
-                    notifier.critical_alert(
-                        f"Trading system HALTED after {cfg.guardrails.api_retry_limit} "
-                        f"consecutive failures.\n\nLast error: {e}"
-                    )
-                print("[HALT] Critical failure threshold reached. System halted.")
-                sys.exit(1)
+                if nf < NETWORK_FAILURE_HALT_THRESHOLD:
+                    time.sleep(30)
+                    continue
+                failure_label = f"{nf} consecutive network errors"
+            else:
+                state["api_failures"] = state.get("api_failures", 0) + 1
+                af = state["api_failures"]
+                print(f"[ERROR] {e} (failure #{af})")
+                save_state(state)
+                if af < cfg.guardrails.api_retry_limit:
+                    time.sleep(10)
+                    continue
+                failure_label = f"{af} consecutive API failures"
 
+            # --- HALT: write alert to disk first, email may also fail ---
+            halt_info = {
+                "halted_at": datetime.now(timezone.utc).isoformat(),
+                "failure_label": failure_label,
+                "last_error": str(e),
+            }
+            try:
+                HALT_ALERT_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with open(HALT_ALERT_PATH, "w") as hf:
+                    json.dump(halt_info, hf, indent=2)
+            except Exception:
+                pass
+
+            state["halted"] = True
             save_state(state)
-            time.sleep(10)
+            if notifier:
+                try:
+                    notifier.critical_alert(
+                        f"Trading system HALTED after {failure_label}.\n\nLast error: {e}"
+                    )
+                    HALT_ALERT_PATH.unlink(missing_ok=True)
+                except Exception as ae:
+                    print(f"[HALT] Alert email failed ({ae}) — saved to disk for retry on next start")
+            print("[HALT] Critical failure threshold reached. System halted.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
