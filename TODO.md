@@ -1,6 +1,6 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-04-16
+**Last Updated**: 2026-04-29
 **Status**: Live (Paper) — ThinkPad P70
 
 ---
@@ -48,6 +48,7 @@
 - [x] **realized_pnl bug fix** (2026-04-16) — was `last_equity - last_equity` (always 0), now `equity - last_equity`
 - [x] First daily report + journal wrap-up emailed end-to-end on ThinkPad (trading day 2026-04-15)
 - [x] Add ANTHROPIC_API_KEY + RESEND_API_KEY + ALERT_EMAIL to WSL .env (synced from ThinkPad)
+- [x] **DNS halt loop fix** (2026-04-27) — transient DNS blip caused 5-day crash loop (13k restarts). Fixed: separate `network_failures` counter (20-failure threshold) from `api_failures` (3-failure threshold); halt alert written to disk before email attempt so it delivers on next startup even if network was down
 
 ---
 
