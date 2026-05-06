@@ -81,6 +81,38 @@ def _is_order_rejection(exc: Exception) -> bool:
     return resp.status_code in (403, 422) or code == 40310000
 
 
+def _notify_order_rejection(exc: Exception, state: dict, notifier) -> None:
+    """Email an order-rejection alert at most once per hour so the inbox isn't flooded
+    when the account is consistently over the allocation cap."""
+    if not notifier:
+        return
+    now = datetime.now(timezone.utc)
+    last_str = state.get("last_rejection_alert")
+    if last_str:
+        try:
+            last = datetime.fromisoformat(last_str)
+            if (now - last).total_seconds() < 3600:
+                return
+        except Exception:
+            pass
+    try:
+        resp = getattr(exc, "response", None)
+        detail = resp.json() if resp is not None else str(exc)
+    except Exception:
+        detail = str(exc)
+    notifier.send(
+        subject="[WARN] Trading — order rejected (insufficient buying power)",
+        body=(
+            f"An order was rejected at {now.strftime('%Y-%m-%d %H:%M UTC')} "
+            f"due to a business-logic condition (not an API failure).\n\n"
+            f"Detail: {detail}\n\n"
+            f"The system is continuing normally. This alert fires at most once per hour.\n"
+            f"Common causes: allocation cap exceeded, buying power exhausted."
+        ),
+    )
+    state["last_rejection_alert"] = now.isoformat()
+
+
 def _flush_pending_halt_alert(notifier) -> None:
     """Send a halt alert that was saved to disk when the network was down at halt time."""
     if not HALT_ALERT_PATH.exists() or not notifier:
@@ -551,6 +583,7 @@ def run(mode: str):
                 # Business-logic rejection (e.g. insufficient buying power) — not an API
                 # malfunction. Log it and move on; never count toward the halt threshold.
                 print(f"[WARN] Order rejected (skipping, no halt credit): {e}")
+                _notify_order_rejection(e, state, notifier)
                 save_state(state)
                 time.sleep(10)
                 continue
