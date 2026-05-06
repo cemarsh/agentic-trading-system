@@ -83,6 +83,7 @@
 ## Near-Term Operational
 
 - [x] Add ANTHROPIC_API_KEY to .env — needed to activate strategy_advisor weekly scan (done on ThinkPad + WSL)
+- [x] **Order rejection halt fix** (2026-05-06) — 403 "insufficient buying power" was miscounted as `api_failures`, halting the system (16k restarts over 6 days). Added `_is_order_rejection()` to skip 4xx business-logic rejections from the halt counter.
 - [ ] Init new DB tables on ThinkPad: `python execution/db_logger.py --init` (adds strategy_analysis + strategy_lessons + research_briefs + trading_signals)
 - [ ] Verify first properly-sized CSP orders fired on acct3 (eligible: MP, ABT, CCJ, PLTR, XOM, VST within $15k)
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender

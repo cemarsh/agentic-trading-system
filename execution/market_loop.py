@@ -61,6 +61,26 @@ def _is_network_error(exc: Exception) -> bool:
     )
 
 
+def _is_order_rejection(exc: Exception) -> bool:
+    """True for 4xx order rejections that are business-logic conditions, not API failures.
+    Insufficient buying power, margin violations, etc. should never count toward the halt
+    threshold — the account being full is expected behaviour, not an API malfunction."""
+    import requests as _req
+    if not isinstance(exc, _req.HTTPError):
+        return False
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return False
+    if resp.status_code < 400 or resp.status_code >= 500:
+        return False
+    try:
+        code = resp.json().get("code", 0)
+    except Exception:
+        code = 0
+    # 40310000 = insufficient buying power / margin; treat all 4xx order errors the same
+    return resp.status_code in (403, 422) or code == 40310000
+
+
 def _flush_pending_halt_alert(notifier) -> None:
     """Send a halt alert that was saved to disk when the network was down at halt time."""
     if not HALT_ALERT_PATH.exists() or not notifier:
@@ -527,6 +547,13 @@ def run(mode: str):
                     time.sleep(30)
                     continue
                 failure_label = f"{nf} consecutive network errors"
+            elif _is_order_rejection(e):
+                # Business-logic rejection (e.g. insufficient buying power) — not an API
+                # malfunction. Log it and move on; never count toward the halt threshold.
+                print(f"[WARN] Order rejected (skipping, no halt credit): {e}")
+                save_state(state)
+                time.sleep(10)
+                continue
             else:
                 state["api_failures"] = state.get("api_failures", 0) + 1
                 af = state["api_failures"]
