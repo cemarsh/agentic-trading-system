@@ -32,6 +32,7 @@ from execution.regime_detector import RegimeDetector
 from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
+from execution.weekly_journal import weekly_wrapup
 
 STATE_PATH = Path("logs/agent_state.json")
 HALT_ALERT_PATH = Path("logs/halt_pending_alert.json")
@@ -257,6 +258,30 @@ def run_scheduled_tasks(
             print("[ADVISOR] Monthly digest sent")
         except Exception as me:
             print(f"[ADVISOR] Monthly digest error: {me}")
+
+    # --- Weekly wrap-up (Friday after 4:15 PM ET) ---
+    # Fires once per ISO week after Friday's daily report window.
+    # Dedup key: ISO week string e.g. "2026-W19"
+    is_friday_eod = (
+        now_et.weekday() == 4
+        and (now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 15))
+    )
+    week_key = now_et.strftime("%Y-W%V")
+    weekly_wrapup_due = is_friday_eod and state.get("last_weekly_wrapup") != week_key
+    if weekly_wrapup_due and notifier:
+        try:
+            weekly_wrapup(
+                ref_date=now_et.date(),
+                alpaca_client=alpaca,
+                regime=current_regime,
+                notifier=notifier,
+                settings=cfg,
+            )
+            state["last_weekly_wrapup"] = week_key
+            save_state(state)
+            print(f"[WEEKLY] Wrap-up complete for {week_key}")
+        except Exception as we:
+            print(f"[WEEKLY] Wrap-up error: {we}")
 
 
 def verify_all(cfg) -> bool:
