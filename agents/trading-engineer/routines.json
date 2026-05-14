@@ -1,0 +1,37 @@
+[
+  {
+    "name": "daily-strategy-health",
+    "description": "Check trading engine is running, review overnight positions, flag any drawdown warnings",
+    "trigger": "cron",
+    "schedule": "0 7 * * 1-5",
+    "ticketTemplate": {
+      "title": "Daily Trading Health Check",
+      "body": "Check: 1) systemctl status trading on ThinkPad (ssh thinkpad). 2) Review trading/journal/ for any overnight fills or assignments. 3) Check current positions vs. risk parameters in config/. 4) Flag any drawdown exceeding threshold. Status: PAPER mode only."
+    },
+    "estimatedTokens": 2000,
+    "authority": "autonomous"
+  },
+  {
+    "name": "weekly-performance-review",
+    "description": "Analyze weekly P&L, win rate, premium collected, and signal attribution",
+    "trigger": "cron",
+    "schedule": "0 9 * * 1",
+    "ticketTemplate": {
+      "title": "Weekly Trading Performance Review",
+      "body": "Analyze trading/journal/ for the past 5 trading days: P&L summary, win rate (CSP fills that didn't assign), premium collected, any assignments (now in CC phase), signal attribution (which L1-L4 signals generated trades). Compare to prior week."
+    },
+    "estimatedTokens": 3000,
+    "authority": "autonomous"
+  },
+  {
+    "name": "policy-signal-analysis",
+    "description": "Manual trigger — analyze a specific policy signal for trading implications",
+    "trigger": "manual",
+    "ticketTemplate": {
+      "title": "Policy Signal Analysis — [Signal Description]",
+      "body": "Analyze the provided policy signal using the wheel strategy framework. Identify: affected sectors, specific tickers to watch, CSP candidates (L1-L2 signals only), risk assessment. All output is EDUCATIONAL — not financial advice. Paper mode analysis only."
+    },
+    "estimatedTokens": 3500,
+    "authority": "autonomous"
+  }
+]

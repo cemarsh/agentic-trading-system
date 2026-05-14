@@ -1,0 +1,58 @@
+# compliance.yaml — [SEC-DEV-01] CMTG Compliance Metadata
+# Maintained by: SSPArchitect agent + project owner
+# Template version: 1.0  |  Generated: 2026-05-11
+
+project_id: "trading"
+project_name: "Agentic Trading Engine"
+owner: "chris@cloudmagicgroup.com"
+last_updated: "2026-05-11"
+
+audit:
+  priority: 3
+  frameworks:
+    - SOC2
+  controls_inherited_from: "cmtg-master-ssp"
+  ssp_file: "ssp-metadata.json"
+
+data:
+  classes:
+    - Internal  phi_present: false
+  pii_present: false
+
+network:
+  segment: "lab-trading"
+  boundary_zone: "lab"
+  external_ingress: false
+  cloudflare_tunnel: false
+
+telemetry:
+  splunk_index: "compliance_vault"
+  splunk_sourcetype: "cmtg:app:trading"
+  uf_enabled: false
+  log_fields_required:
+    - project_id
+    - data_class
+    - control_id
+
+credentials:
+  hardcoded_secrets: false
+  jit_managed: false
+  secrets_manager: "env_file"
+
+encryption:
+  at_rest: false
+  at_rest_method: "provider-managed"
+  in_transit: false
+  tls_version: "1.3"
+
+access:
+  mfa_enforced: false
+  mfa_method: "TOTP"
+
+vendor_dependencies: []
+
+infrastructure_as_code:
+  iac_tool: "terraform"
+  deploy_script: ""
+
+compliance_gaps: []
