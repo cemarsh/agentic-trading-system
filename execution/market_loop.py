@@ -300,13 +300,39 @@ def verify_all(cfg) -> bool:
     return ok
 
 
+def _try_network_recovery(state: dict) -> None:
+    """On startup, probe connectivity after a network-only halt.
+    Auto-clears the halt if DNS/TCP to Alpaca resolves — no manual reset needed
+    after transient outages. API-failure halts are left to manual reset."""
+    import socket
+    nf = state.get("network_failures", 0)
+    host = "paper-api.alpaca.markets"
+    print(f"[RECOVERY] Network halt detected ({nf} prior failures) — probing {host}:443 ...")
+    try:
+        sock = socket.create_connection((host, 443), timeout=10)
+        sock.close()
+        print("[RECOVERY] Connectivity restored — auto-clearing network halt")
+        state["halted"] = False
+        state["network_failures"] = 0
+        save_state(state)
+        HALT_ALERT_PATH.unlink(missing_ok=True)
+    except Exception as probe_err:
+        print(f"[HALT] Network still unreachable ({probe_err}). Staying halted.")
+        sys.exit(1)
+
+
 def run(mode: str):
     cfg = cfg_module.load()
     state = load_state()
 
     if state.get("halted"):
-        print("[HALT] System is halted due to prior failure. Check logs and reset agent_state.json.")
-        sys.exit(1)
+        # Network-only halts auto-recover when connectivity is restored.
+        # API halts require manual reset — they signal a real malfunction.
+        if state.get("api_failures", 0) == 0 and state.get("network_failures", 0) >= NETWORK_FAILURE_HALT_THRESHOLD:
+            _try_network_recovery(state)
+        else:
+            print("[HALT] System is halted due to prior API failure. Check logs and reset agent_state.json.")
+            sys.exit(1)
 
     if mode == "live" and cfg.guardrails.paper_mode:
         print("[WARN] strategy_params.yaml has paper_mode: true. Set to false to enable live trading.")
