@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-05-14
-**Status**: Live (Paper) — ThinkPad P70
+**Last Updated**: 2026-05-25
+**Status**: Live (Paper) — Home Workstation (migrated from ThinkPad P70)
 
 ---
 
@@ -86,7 +86,11 @@
 - [x] **Order rejection halt fix** (2026-05-06) — 403 "insufficient buying power" was miscounted as `api_failures`, halting the system (16k restarts over 6 days). Added `_is_order_rejection()` to skip 4xx business-logic rejections from the halt counter.
 - [x] **Weekly wrap-up** (2026-05-07) — Friday EOD trigger collates Mon–Fri daily journals + NotebookLM research signals from DB + MTD trade performance report. Claude synthesizes into `journal/weekly/YYYY-Www.md` and emails.
 - [x] **Network halt auto-recovery** (2026-05-14) — network-only halts (`api_failures==0`, `network_failures>=20`) now probe TCP connectivity on startup; auto-clear and resume if restored. API halts still require manual reset.
-- [ ] Init new DB tables on ThinkPad: `python execution/db_logger.py --init` (adds strategy_analysis + strategy_lessons + research_briefs + trading_signals)
+- [x] **Migrated to workstation** (2026-05-25) — service stopped/disabled on ThinkPad P70, enabled on home-workstation. ThinkPad was sleeping and taking the service down with it.
+- [x] **Wheel cap fix** (2026-05-25) — `max_portfolio_pct_per_trade` raised 6% → 15% ($6k → $15k/trade at $100k equity). Every ticker was blocked due to undersized cap.
+- [x] **Fixed missing `anthropic` in requirements.txt** (2026-05-25) — fresh venv installs crashed at import.
+- [ ] Init new DB tables: `python execution/db_logger.py --init` from workstation (adds strategy_analysis + strategy_lessons + research_briefs + trading_signals)
+- [ ] **ANTHROPIC_API_KEY expired** — journal Claude synthesis returning 401. Get new key from console.anthropic.com and update workstation `~/.../trading/.env`
 - [ ] Verify first properly-sized CSP orders fired on acct3 (eligible: MP, ABT, CCJ, PLTR, XOM, VST within $15k)
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender
 - [ ] Flip `paper_mode: false` after verifying 10+ autonomous paper trades
