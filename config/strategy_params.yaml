@@ -66,7 +66,7 @@ wheel:
   expiration_weeks: 2            # Weeks to expiration at entry
   cc_strike_markup_pct: 2.0      # CC strike = cost_basis * (1 + this/100)
   min_premium_pct: 0.8           # Raised from 0.5 — elevated IV means we can demand more
-  max_portfolio_pct_per_trade: 6.0   # Max % of equity per CSP (e.g. 6% of $250k = $15k/position)
+  max_portfolio_pct_per_trade: 15.0  # Max % of equity per CSP (e.g. 15% of $100k = $15k/position)
   max_wheel_allocation_pct: 65       # Stop opening new CSPs above this % of equity in margin
 
 protection:
