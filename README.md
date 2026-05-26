@@ -1,9 +1,9 @@
 # Agentic Trading System
 
-**Version**: 1.5.0  
-**Last Updated**: 2026-04-16  
+**Version**: 1.5.1  
+**Last Updated**: 2026-05-26  
 **Operator**: Cloud Magic Technology Group  
-**Status**: Live (Paper) · ThinkPad P70 · Alpaca Markets
+**Status**: Live (Paper) · Home Workstation · Alpaca Markets
 
 > The stock market is the last great information asymmetry. Institutions spend hundreds of millions
 > on data feeds, quant teams, and co-location. This project is our answer: a self-directing,
