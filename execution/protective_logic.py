@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 _OPTIONS_SYMBOL_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
 
 from config import settings as cfg_module
+from execution.daily_journal import log_insight
 
 
 @dataclass
@@ -104,6 +105,14 @@ class ProtectiveLogic:
             order_type="market",
         )
         self._ladder_counts[ticker] = self._ladder_counts.get(ticker, 0) + 1
+        pos = self._positions.get(ticker)
+        log_insight(
+            source="protection",
+            category="decision",
+            insight=f"LADDER BUY {prot.ladder_buy_shares}x {ticker} — drawdown #{self._ladder_counts[ticker]} >= {prot.ladder_drop_pct}%",
+            metadata={"ticker": ticker, "qty": prot.ladder_buy_shares, "ladder_count": self._ladder_counts[ticker],
+                      "entry_price": pos.entry_price if pos else None},
+        )
         if self._db:
             self._db.log_decision(
                 ticker=ticker,
@@ -128,6 +137,12 @@ class ProtectiveLogic:
             order_type="market",
         )
         del self._positions[ticker]
+        log_insight(
+            source="protection",
+            category="decision",
+            insight=f"STOP SELL {pos.qty}x {ticker} — trailing stop ${pos.stop_price:.2f} (entry ${pos.entry_price:.2f})",
+            metadata={"ticker": ticker, "qty": pos.qty, "entry_price": pos.entry_price, "stop_price": pos.stop_price},
+        )
         if self._db:
             self._db.log_decision(
                 ticker=ticker,
@@ -138,4 +153,18 @@ class ProtectiveLogic:
                 order_id=order.get("id"),
                 status="pending",
             )
+            estimated_pnl = (pos.stop_price - pos.entry_price) * pos.qty
+            try:
+                self._db.log_lesson(
+                    ticker=ticker,
+                    strategy_used="trailing_stop",
+                    regime="unknown",
+                    outcome="stop_exit",
+                    lesson=f"Trailing stop exit — entry ${pos.entry_price:.2f}, stop ${pos.stop_price:.2f}, est PnL ${estimated_pnl:+,.2f}",
+                    entry_price=pos.entry_price,
+                    exit_price=pos.stop_price,
+                    pnl=estimated_pnl,
+                )
+            except Exception:
+                pass
         return order

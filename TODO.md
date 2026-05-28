@@ -89,16 +89,17 @@
 - [x] **Migrated to workstation** (2026-05-25) — service stopped/disabled on ThinkPad P70, enabled on home-workstation. ThinkPad was sleeping and taking the service down with it.
 - [x] **Wheel cap fix** (2026-05-25) — `max_portfolio_pct_per_trade` raised 6% → 15% ($6k → $15k/trade at $100k equity). Every ticker was blocked due to undersized cap.
 - [x] **Fixed missing `anthropic` in requirements.txt** (2026-05-25) — fresh venv installs crashed at import.
-- [ ] Init new DB tables: `python execution/db_logger.py --init` from workstation (adds strategy_analysis + strategy_lessons + research_briefs + trading_signals)
-- [ ] **ANTHROPIC_API_KEY expired** — journal Claude synthesis returning 401. Get new key from console.anthropic.com and update workstation `~/.../trading/.env`
-- [ ] Verify first properly-sized CSP orders fired on acct3 (eligible: MP, ABT, CCJ, PLTR, XOM, VST within $15k)
+- [ ] Init new DB tables: `python execution/db_logger.py --init` from workstation — needs `DATABASE_URL` in `.env` (PostgreSQL in Docker, connection string TBD)
+- [x] **ANTHROPIC_API_KEY expired** — replaced 2026-05-27 with new key from console.anthropic.com
+- [x] **Verified CSP orders firing on acct3** (2026-05-27) — 5 contracts filled: CCJ, MP×2, PLTR, RTX, VST; cap fix confirmed working
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender
 - [ ] Flip `paper_mode: false` after verifying 10+ autonomous paper trades
 - [ ] Add ThinkPad daily sync for ops-dashboard.json to include trading metrics
-- [ ] Add IV rank/percentile check before opening CSPs (only sell when rank > 30)
-- [ ] Log post-trade lessons to strategy_lessons table as positions close (wire into daily report)
-- [ ] **Regime detector bug**: `[REGIME] Detection error: object of type 'NoneType' has no len()` — returns NEUTRAL fallback, degrading wrap-up quality. Debug Alpaca bars response when market closed.
-- [ ] Extend `log_insight()` hooks to wheel entries/exits, hedge adjustments, protective stops (currently only whale_watch, policy, regime transitions)
+- [ ] Add IV rank/percentile check before opening CSPs (only sell when rank > 30) — needs historical IV snapshots in DB first
+- [x] **Post-trade lessons** (2026-05-27) — `log_lesson()` called in `execute_stop()` with entry/exit/PnL; auto-feeds strategy review digests
+- [x] **Regime detector bug** fixed (2026-05-27) — `get_bars()` returning None when market closed; added `or []` guard in alpaca_client + `not bars` guard in regime_detector
+- [x] **`log_insight()` hooks extended** (2026-05-27) — wheel CSP/CC open, hedge entry/exit, protective stop/ladder all log to daily journal
+- [x] **Slack alerts wired** (2026-05-27) — `SLACK_WEBHOOK_URL` in .env → #agentic-ops-alerts; critical_alert() posts to Slack + email
 - [ ] Promote recurring "What Changes Tomorrow" bullets from journal into config/strategy_params.yaml or directives (manual review weekly)
 
 ## NotebookLM Trading Intelligence Bridge
@@ -113,4 +114,4 @@
 - [x] WEBHOOK_SECRET set in .env (9f506f5f...)
 - [x] End-to-end test PASSED: 4 signals extracted/scored/upserted, research_briefs + workflow_runs logged
 - [x] Webhook URL: http://localhost:5678/webhook/trading/research-intake (OpenClaw)
-- [ ] Configure Slack webhook (SLACK_WEBHOOK_URL) for high-conviction alerts (conviction >= 7)
+- [x] Configure Slack webhook (SLACK_WEBHOOK_URL) for high-conviction alerts (conviction >= 7) — done 2026-05-27, #agentic-ops-alerts

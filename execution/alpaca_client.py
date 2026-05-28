@@ -61,7 +61,7 @@ class AlpacaClient:
             params={"timeframe": timeframe, "limit": limit},
             data_api=True,
         )
-        return data.get("bars", [])
+        return data.get("bars") or []
 
     def submit_order(
         self,

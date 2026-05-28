@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
+from execution.daily_journal import log_insight
 
 
 @dataclass
@@ -142,6 +143,12 @@ class WheelStrategy:
         pos.csp_strike = actual_strike
         pos.csp_expiry = expiry
 
+        log_insight(
+            source="wheel",
+            category="decision",
+            insight=f"SELL CSP {ticker} ${actual_strike} exp {expiry} — underlying ${current_price:.2f}",
+            metadata={"ticker": ticker, "strike": actual_strike, "expiry": expiry, "price": current_price},
+        )
         if self._db:
             self._db.log_decision(
                 ticker=ticker,
@@ -202,6 +209,12 @@ class WheelStrategy:
         pos.cc_strike = actual_cc_strike
         pos.cc_expiry = expiry
 
+        log_insight(
+            source="wheel",
+            category="decision",
+            insight=f"SELL CC {ticker} ${actual_cc_strike} exp {expiry} — cost basis ${pos.cost_basis:.2f}",
+            metadata={"ticker": ticker, "strike": actual_cc_strike, "expiry": expiry, "cost_basis": pos.cost_basis},
+        )
         if self._db:
             self._db.log_decision(
                 ticker=ticker,

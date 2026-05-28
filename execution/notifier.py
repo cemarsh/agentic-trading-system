@@ -5,7 +5,9 @@ Usage:
 """
 
 import argparse
+import json
 import sys
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -34,11 +36,22 @@ class Notifier:
             params["text"] = body
         resend.Emails.send(params)
 
+    def send_slack(self, text: str):
+        """Post a plain-text message to the configured Slack webhook. Silently no-ops if unset."""
+        url = self.cfg.notifications.slack_webhook_url
+        if not url:
+            return
+        try:
+            payload = json.dumps({"text": text}).encode()
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            print(f"[SLACK] send failed: {e}")
+
     def critical_alert(self, message: str):
-        self.send(
-            subject="[CRITICAL] Trading System Alert",
-            body=f"CRITICAL ALERT — {datetime.utcnow().isoformat()}Z\n\n{message}",
-        )
+        body = f"CRITICAL ALERT — {datetime.utcnow().isoformat()}Z\n\n{message}"
+        self.send(subject="[CRITICAL] Trading System Alert", body=body)
+        self.send_slack(f":rotating_light: *CRITICAL* — {message[:500]}")
 
     def status_report(
         self,

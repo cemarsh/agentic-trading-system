@@ -40,6 +40,7 @@ class NotificationConfig:
     daily_report_time: str
     status_check_interval_hours: int
     timezone: str
+    slack_webhook_url: str = ""
 
 
 @dataclass
@@ -160,6 +161,7 @@ def load() -> Settings:
             daily_report_time=raw["notifications"]["daily_report_time"],
             status_check_interval_hours=raw["notifications"].get("status_check_interval_hours", 2),
             timezone=raw["notifications"]["timezone"],
+            slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL", ""),
         ),
         hardware=HardwareConfig(**raw["hardware"]),
         intelligence=IntelligenceConfig(**raw["intelligence"]),

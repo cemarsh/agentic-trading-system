@@ -18,6 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from execution.daily_journal import log_insight
+
 
 class InverseETFHedge:
     def __init__(self, settings=None, alpaca_client=None, db_logger=None):
@@ -72,6 +74,12 @@ class InverseETFHedge:
                 f"[HEDGE] BUY {buy_qty}x {ticker} @ ~${price:.2f}  "
                 f"regime={regime}  target=${target_value:,.0f}"
             )
+            log_insight(
+                source="hedge",
+                category="decision",
+                insight=f"BUY {buy_qty}x {ticker} @ ~${price:.2f} — hedge entry (regime={regime})",
+                metadata={"ticker": ticker, "qty": buy_qty, "price": price, "regime": regime, "target_value": target_value},
+            )
             if self._db:
                 self._db.log_decision(
                     ticker=ticker,
@@ -91,6 +99,12 @@ class InverseETFHedge:
         try:
             self._alpaca.submit_order(ticker, qty, "sell")
             print(f"[HEDGE] SELL {qty}x {ticker} — regime normalized to {regime}")
+            log_insight(
+                source="hedge",
+                category="decision",
+                insight=f"SELL {qty}x {ticker} — hedge exit (regime normalized to {regime})",
+                metadata={"ticker": ticker, "qty": qty, "regime": regime},
+            )
             if self._db:
                 self._db.log_decision(
                     ticker=ticker,

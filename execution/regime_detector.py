@@ -30,7 +30,7 @@ class RegimeDetector:
         try:
             # Full-day 1-min bars — use first open vs latest close
             bars = self._alpaca.get_bars("SPY", "1Min", 390)
-            if len(bars) < 2:
+            if not bars or len(bars) < 2:
                 return self._current
 
             day_open = bars[0]["o"]
