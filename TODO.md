@@ -89,7 +89,7 @@
 - [x] **Migrated to workstation** (2026-05-25) — service stopped/disabled on ThinkPad P70, enabled on home-workstation. ThinkPad was sleeping and taking the service down with it.
 - [x] **Wheel cap fix** (2026-05-25) — `max_portfolio_pct_per_trade` raised 6% → 15% ($6k → $15k/trade at $100k equity). Every ticker was blocked due to undersized cap.
 - [x] **Fixed missing `anthropic` in requirements.txt** (2026-05-25) — fresh venv installs crashed at import.
-- [ ] Init new DB tables: `python execution/db_logger.py --init` from workstation — needs `DATABASE_URL` in `.env` (PostgreSQL in Docker, connection string TBD)
+- [x] **DB tables initialized** (2026-05-27) — `trading` DB + user created on dev-postgres (10.1.50.114); all 6 tables live; DATABASE_URL wired to both WSL + workstation `.env`
 - [x] **ANTHROPIC_API_KEY expired** — replaced 2026-05-27 with new key from console.anthropic.com
 - [x] **Verified CSP orders firing on acct3** (2026-05-27) — 5 contracts filled: CCJ, MP×2, PLTR, RTX, VST; cap fix confirmed working
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender
