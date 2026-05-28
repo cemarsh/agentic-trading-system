@@ -112,6 +112,43 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     duration_ms        INT,
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- IV history for IVR/IVP computation (Account C derivatives gate)
+CREATE TABLE IF NOT EXISTS iv_history (
+    id              SERIAL PRIMARY KEY,
+    ticker          VARCHAR(10) NOT NULL,
+    snapshot_date   DATE NOT NULL,
+    iv_value        FLOAT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ticker, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_iv_history_ticker_date ON iv_history(ticker, snapshot_date DESC);
+
+-- Derivatives positions (Account C multi-leg structures)
+CREATE TABLE IF NOT EXISTS derivatives_positions (
+    id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    account         VARCHAR(5) NOT NULL DEFAULT 'C',
+    strategy        VARCHAR(20) NOT NULL,  -- BWB, IRON_CONDOR, JADE_LIZARD, VERTICAL, LEAPS, EVENT
+    ticker          VARCHAR(10) NOT NULL,
+    regime_at_entry VARCHAR(20),
+    iv_rank_at_entry FLOAT,
+    legs            JSONB NOT NULL,        -- array of {symbol, side, qty, avg_fill}
+    net_credit      FLOAT,                 -- positive = credit received, negative = debit paid
+    max_profit      FLOAT,
+    max_loss        FLOAT,
+    dte_at_entry    INT,
+    target_close_pct FLOAT DEFAULT 0.50,  -- close at this % of max profit
+    status          VARCHAR(20) DEFAULT 'open' CHECK (status IN ('open','closed','rolled','expired')),
+    opened_at       TIMESTAMPTZ DEFAULT NOW(),
+    closed_at       TIMESTAMPTZ,
+    realized_pnl    FLOAT,
+    close_reason    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_deriv_status  ON derivatives_positions(status);
+CREATE INDEX IF NOT EXISTS idx_deriv_ticker  ON derivatives_positions(ticker);
+CREATE INDEX IF NOT EXISTS idx_deriv_account ON derivatives_positions(account);
 """
 
 

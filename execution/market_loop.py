@@ -285,8 +285,21 @@ def run_scheduled_tasks(
         except Exception as we:
             print(f"[WEEKLY] Wrap-up error: {we}")
 
+    # --- IV snapshot (Mon–Fri, 8:30–8:59 AM ET, once per day) ---
+    is_weekday = now_et.weekday() < 5
+    is_iv_window = now_et.hour == 8 and now_et.minute >= 30
+    iv_due = is_weekday and is_iv_window and state.get("last_iv_snapshot") != today_et
+    if iv_due:
+        try:
+            from execution.iv_tracker import snapshot_all_tickers
+            snapshot_all_tickers(settings=cfg)
+            state["last_iv_snapshot"] = today_et
+            save_state(state)
+            print(f"[IV] Daily snapshot complete for {today_et}")
+        except Exception as ive:
+            print(f"[IV] Snapshot error: {ive}")
+
     # --- Morning briefing (Mon–Fri, 9:00–9:29 AM ET, once per day) ---
-    is_weekday = now_et.weekday() < 5  # Mon=0 … Fri=4
     is_briefing_window = now_et.hour == 9 and now_et.minute < 30
     briefing_due = (
         is_weekday
