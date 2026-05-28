@@ -339,24 +339,45 @@ def verify_all(cfg) -> bool:
 
 
 def _try_network_recovery(state: dict) -> None:
-    """On startup, probe connectivity after a network-only halt.
+    """On startup, probe connectivity after a network-driven halt.
     Auto-clears the halt if DNS/TCP to Alpaca resolves — no manual reset needed
-    after transient outages. API-failure halts are left to manual reset."""
+    after transient outages. Pure API-failure halts are left to manual reset."""
     import socket
     nf = state.get("network_failures", 0)
+    af = state.get("api_failures", 0)
     host = "paper-api.alpaca.markets"
-    print(f"[RECOVERY] Network halt detected ({nf} prior failures) — probing {host}:443 ...")
+    print(f"[RECOVERY] Network-driven halt detected (network={nf}, api={af}) — probing {host}:443 ...")
     try:
         sock = socket.create_connection((host, 443), timeout=10)
         sock.close()
-        print("[RECOVERY] Connectivity restored — auto-clearing network halt")
+        print("[RECOVERY] Connectivity restored — auto-clearing halt and resuming")
         state["halted"] = False
         state["network_failures"] = 0
+        state["api_failures"] = 0
         save_state(state)
         HALT_ALERT_PATH.unlink(missing_ok=True)
+        # Notify via Slack that auto-recovery succeeded
+        _send_recovery_slack_alert(nf, af)
     except Exception as probe_err:
         print(f"[HALT] Network still unreachable ({probe_err}). Staying halted.")
         sys.exit(1)
+
+
+def _send_recovery_slack_alert(network_failures: int, api_failures: int) -> None:
+    """Fire a Slack message when the system self-heals from a network halt."""
+    import os, json, urllib.request
+    url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not url:
+        return
+    try:
+        msg = (f":white_check_mark: *Trading system auto-recovered* — "
+               f"network restored after {network_failures} network + {api_failures} API failures. "
+               f"Loop resuming.")
+        payload = json.dumps({"text": msg}).encode()
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10)
+    except Exception:
+        pass
 
 
 def run(mode: str):
@@ -364,12 +385,19 @@ def run(mode: str):
     state = load_state()
 
     if state.get("halted"):
-        # Network-only halts auto-recover when connectivity is restored.
-        # API halts require manual reset — they signal a real malfunction.
-        if state.get("api_failures", 0) == 0 and state.get("network_failures", 0) >= NETWORK_FAILURE_HALT_THRESHOLD:
+        af = state.get("api_failures", 0)
+        nf = state.get("network_failures", 0)
+        # Auto-recover if halt was primarily network-driven:
+        #   - pure network halt (af == 0), OR
+        #   - mixed: mostly network failures with a small number of api_failures
+        #     (api_failures <= 2 means the "API" errors were almost certainly
+        #     the same DNS blip miscounted as API failures on the final attempts)
+        is_network_driven = nf >= NETWORK_FAILURE_HALT_THRESHOLD and af <= 2
+        if is_network_driven:
             _try_network_recovery(state)
         else:
-            print("[HALT] System is halted due to prior API failure. Check logs and reset agent_state.json.")
+            print(f"[HALT] System halted — api_failures={af}, network_failures={nf}. "
+                  f"Reset logs/agent_state.json to resume.")
             sys.exit(1)
 
     if mode == "live" and cfg.guardrails.paper_mode:
