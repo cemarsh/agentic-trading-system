@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 1.5.1  
-**Last Updated**: 2026-05-26  
+**Version**: 1.5.2  
+**Last Updated**: 2026-05-27  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · Home Workstation · Alpaca Markets
 
@@ -50,7 +50,7 @@ shifts before they become obvious. The edge is in the information hierarchy, not
            │               │   │                                     │
            │ SPY intraday %│   │ Cash Secured Puts → Assignment      │
            │ BULL/NEUTRAL  │   │ → Covered Calls · 18 tickers        │
-           │ BEAR/EXTREME  │   │ Position sizing: 6%/trade · 65% cap │
+           │ BEAR/EXTREME  │   │ Position sizing: 15%/trade · 65% cap│
            └───────┬───────┘   └─────────────────────────────────────┘
                    │
            ┌───────▼───────┐   ┌────────────────────────────────────┐
@@ -197,7 +197,7 @@ python execution/strategy_advisor.py --monthly
 
 Every trading day produces a permanent narrative record. Two tiers:
 
-1. **Raw intraday dump** — `logs/insights/YYYY-MM-DD.jsonl`. Append-only, structured. Any module calls `log_insight(source, category, insight, metadata)` as events happen. Already wired into whale_watch, policy scans, and regime transitions.
+1. **Raw intraday dump** — `logs/insights/YYYY-MM-DD.jsonl`. Append-only, structured. Any module calls `log_insight(source, category, insight, metadata)` as events happen. Wired into: whale_watch, policy scans, regime transitions, wheel CSP/CC opens, hedge entry/exit, protective stop triggers, and ladder buys.
 
 2. **Synthesized EOD wrap-up** — `journal/YYYY-MM-DD.md`. Generated at 4:05+ PM ET once per trading day by Claude from the dump + `decision_logic`/`strategy_analysis`/`strategy_lessons` DB rows + policy cache + EOD account snapshot. Emailed via Resend and committed to the repo. Falls back to a deterministic template if `ANTHROPIC_API_KEY` is absent.
 
@@ -332,7 +332,7 @@ trading/
 │   ├── inverse_etf_hedge.py     # Auto-buy/sell SQQQ based on regime
 │   ├── policy_monitor.py        # Policy intelligence scanner (L1–L4)
 │   ├── hardware_monitor.py      # CPU/temp threshold enforcement
-│   ├── notifier.py              # Resend email (noreply@cloudmagicgroup.com)
+│   ├── notifier.py              # Resend email + Slack #agentic-ops-alerts
 │   └── db_logger.py             # PostgreSQL — decision_logic, strategy_analysis, strategy_lessons
 └── tests/
     ├── test_alpaca_client.py
@@ -355,7 +355,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # Fill in: ALPACA_KEY, ALPACA_SECRET, ALPACA_BASE_URL,
 #          RESEND_API_KEY, ALERT_EMAIL, DATABASE_URL,
-#          ANTHROPIC_API_KEY (for strategy advisor)
+#          ANTHROPIC_API_KEY (for strategy advisor),
+#          SLACK_WEBHOOK_URL (Incoming Webhook → #agentic-ops-alerts)
 
 # 3. Configure strategy
 # Edit config/strategy_params.yaml — tickers, thresholds, politician watchlist
@@ -444,4 +445,4 @@ We are building the infrastructure to do that. Systematically. At scale. Autonom
 
 ---
 
-*Built by Cloud Magic Technology Group · Powered by Alpaca Markets · Running 24/7 on ThinkPad P70*
+*Built by Cloud Magic Technology Group · Powered by Alpaca Markets · Running 24/7 on Home Workstation (pve01 VM 117)*
