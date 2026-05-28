@@ -98,6 +98,14 @@ class HedgeConfig:
 
 
 @dataclass
+class PositionManagementConfig:
+    close_profit_pct: float = 50.0
+    roll_dte_threshold: int = 21
+    force_close_dte: int = 7
+    roll_weeks_out: int = 4
+
+
+@dataclass
 class AnthropicConfig:
     api_key: str
 
@@ -124,6 +132,7 @@ class Settings:
     regime: RegimeConfig
     hedge: HedgeConfig
     anthropic: AnthropicConfig
+    position_management: PositionManagementConfig = None
 
 
 def load() -> Settings:
@@ -172,4 +181,8 @@ def load() -> Settings:
         regime=RegimeConfig(**raw["regime"]),
         hedge=HedgeConfig(**raw["hedge"]),
         anthropic=AnthropicConfig(api_key=anthropic_key),
+        position_management=PositionManagementConfig(**{
+            k: v for k, v in raw.get("position_management", {}).items()
+            if k in PositionManagementConfig.__dataclass_fields__
+        }),
     )

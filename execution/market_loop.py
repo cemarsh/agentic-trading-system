@@ -33,6 +33,8 @@ from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
 from execution.weekly_journal import weekly_wrapup
+from execution.position_manager import PositionManager
+from execution.morning_briefing import MorningBriefing
 
 STATE_PATH = Path("logs/agent_state.json")
 HALT_ALERT_PATH = Path("logs/halt_pending_alert.json")
@@ -283,6 +285,29 @@ def run_scheduled_tasks(
         except Exception as we:
             print(f"[WEEKLY] Wrap-up error: {we}")
 
+    # --- Morning briefing (Mon–Fri, 9:00–9:29 AM ET, once per day) ---
+    is_weekday = now_et.weekday() < 5  # Mon=0 … Fri=4
+    is_briefing_window = now_et.hour == 9 and now_et.minute < 30
+    briefing_due = (
+        is_weekday
+        and is_briefing_window
+        and state.get("last_morning_briefing") != today_et
+    )
+    if briefing_due:
+        try:
+            mb = MorningBriefing(
+                settings=cfg,
+                alpaca_client=alpaca,
+                db_logger=db,
+                notifier=notifier,
+            )
+            mb.generate()
+            state["last_morning_briefing"] = today_et
+            save_state(state)
+            print(f"[BRIEFING] Morning briefing sent for {today_et}")
+        except Exception as be:
+            print(f"[BRIEFING] Morning briefing error: {be}")
+
 
 def verify_all(cfg) -> bool:
     ok = True
@@ -364,6 +389,7 @@ def run(mode: str):
     hw = HardwareMonitor(settings=cfg, notifier=notifier)
     whale = WhaleWatcher(settings=cfg, alpaca_client=alpaca)
     wheel = WheelStrategy(settings=cfg, alpaca_client=alpaca, db_logger=db)
+    position_mgr = PositionManager(settings=cfg, alpaca_client=alpaca, db_logger=db)
     protection = ProtectiveLogic(settings=cfg, alpaca_client=alpaca, db_logger=db)
     policy = PolicyMonitor(settings=cfg, notifier=notifier, db=db)
     regime = RegimeDetector(settings=cfg, alpaca_client=alpaca)
@@ -559,6 +585,16 @@ def run(mode: str):
                 if delta_override:
                     cfg.wheel.target_delta = delta_override
                 wheel_contracts_found = wheel.run_cycle()
+
+            # --- Active Position Management (50% profit close + 21-DTE roll) ---
+            try:
+                pm_result = position_mgr.run_cycle(positions)
+                if pm_result["closed"] or pm_result["rolled"]:
+                    print(
+                        f"[PM] Closed: {pm_result['closed']}  Rolled: {pm_result['rolled']}"
+                    )
+            except Exception as pme:
+                print(f"[PM] Position manager error: {pme}")
 
             # --- Inverse ETF Hedge ---
             hedge.run(regime=current_regime, positions=positions, equity=float(alpaca.get_account().get("equity", 0)))

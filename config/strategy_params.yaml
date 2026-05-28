@@ -33,6 +33,25 @@ whale_watch:
   max_portfolio_pct_per_trade: 5 # Max % of portfolio per whale signal
   roc_lookback_minutes: 5        # 1-min bars to compute Rate of Change
 
+position_management:
+  close_profit_pct: 50          # Buy to close when premium decays >= this % (50% max profit rule)
+  roll_dte_threshold: 21        # Roll when DTE <= this and not at profit target
+  force_close_dte: 7            # Always close (no exceptions) when DTE <= this
+  roll_weeks_out: 4             # How many weeks to roll to
+
+morning_briefing:
+  enabled: true
+  hour_et: 9                    # Fire at 9 AM ET
+  minute_cutoff: 30             # Must be before 9:30 (market open)
+  min_conviction_highlight: 6   # NotebookLM signals above this go in the briefing
+  max_trade_ideas: 3            # Max specific trade ideas to generate
+
+signal_convergence:
+  strong_buy_accounts: ["B", "C"]   # Accounts to use for convergence plays
+  whale_min_for_convergence: 25000  # Minimum whale trade $ for convergence signal
+  policy_tiers_actionable: [1, 2]   # Policy tiers that trigger convergence check
+  notebooklm_min_conviction: 7      # Minimum NLM conviction for convergence
+
 wheel:
   tickers:
     # === DEFENSE / AI (Tier 1) ===
@@ -62,6 +81,9 @@ wheel:
     - "GLD"    # Gold — stagflation hedge, technical dip
     # AVOID: AAPL (China), NVDA (export ban), SPY (trend unclear)
     # AVOID: LMT (earnings Apr 21), NOC (ATH wide spreads)
+    # === MOMENTUM / EVENT-DRIVEN ADDITIONS (v2.0) ===
+    - "RKLB"  # SpaceX competitor, Space Force contracts, breakout candidate
+    - "KTOS"  # Drone autonomy, Skyborg program, DoD pipeline
   target_delta: 0.25             # Tightened from 0.30 — more conservative in volatile market
   expiration_weeks: 2            # Weeks to expiration at entry
   cc_strike_markup_pct: 2.0      # CC strike = cost_basis * (1 + this/100)
