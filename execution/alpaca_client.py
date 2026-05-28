@@ -27,7 +27,7 @@ class AlpacaClient:
 
     def _get(self, path: str, params: dict = None, data_api: bool = False) -> dict:
         base = self.data_url if data_api else self.base_url
-        resp = requests.get(f"{base}{path}", headers=self._headers, params=params, timeout=10)
+        resp = requests.get(f"{base}{path}", headers=self._headers, params=params, timeout=20)
         resp.raise_for_status()
         return resp.json()
 
@@ -36,7 +36,7 @@ class AlpacaClient:
             f"{self.base_url}{path}",
             headers={**self._headers, "Content-Type": "application/json"},
             json=body,
-            timeout=10,
+            timeout=20,
         )
         if not resp.ok:
             try:
