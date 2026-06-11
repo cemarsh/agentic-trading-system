@@ -8,6 +8,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -144,6 +145,29 @@ class AlpacaClient:
     def get_clock(self) -> dict:
         """Returns market clock: is_open, next_open, next_close (ISO strings)."""
         return self._get("/v2/clock")
+
+    def get_open_orders(self) -> list:
+        """All currently open/working orders (used to avoid double-submitting)."""
+        return self._get("/v2/orders", params={"status": "open", "limit": 500})
+
+    def get_option_quote(self, symbol: str) -> Optional[dict]:
+        """Latest NBBO for an option contract. Returns {'bid','ask','mid'} or None.
+        Used to price rolls/closes off the *real* market instead of an estimate."""
+        try:
+            data = self._get(
+                "/v1beta1/options/quotes/latest",
+                params={"symbols": symbol},
+                data_api=True,
+            )
+            q = (data.get("quotes") or {}).get(symbol)
+            if not q:
+                return None
+            bid = float(q.get("bp", 0) or 0)
+            ask = float(q.get("ap", 0) or 0)
+            mid = (bid + ask) / 2 if (bid and ask) else (ask or bid)
+            return {"bid": bid, "ask": ask, "mid": mid}
+        except Exception:
+            return None
 
     def compute_roc(self, ticker: str, lookback_minutes: int = 5) -> float:
         """Rate of Change over lookback_minutes 1-min bars."""

@@ -103,6 +103,8 @@ class PositionManagementConfig:
     roll_dte_threshold: int = 21
     force_close_dte: int = 7
     roll_weeks_out: int = 4
+    stop_loss_pct: float = 250.0      # BTC a short PUT once its loss reaches this % of premium (0/None disables)
+    roll_otm_buffer: float = 0.05     # roll down-and-out: new put strike <= spot * (1 - this)
 
 
 @dataclass

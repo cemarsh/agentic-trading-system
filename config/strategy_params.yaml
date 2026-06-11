@@ -38,6 +38,8 @@ position_management:
   roll_dte_threshold: 21        # Roll when DTE <= this and not at profit target
   force_close_dte: 7            # Always close (no exceptions) when DTE <= this
   roll_weeks_out: 4             # How many weeks to roll to
+  stop_loss_pct: 250            # Buy to close a short PUT once loss >= this % of premium received (caps blowups; 0 disables)
+  roll_otm_buffer: 0.05         # Roll down-and-out: new put strike <= spot * (1 - this), and never above the old strike
 
 morning_briefing:
   enabled: true

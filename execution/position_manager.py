@@ -1,10 +1,13 @@
 """
 Position Manager — Active options position management.
 
-Runs once per loop cycle and enforces two rules:
+Runs once per loop cycle and enforces these rules (short options):
   1. 50% max-profit close: BTC when (entry_credit - current_mark) / entry_credit >= 0.50
-  2. 21 DTE roll: when DTE <= 21 and position is NOT at 50%+ profit, roll to 4-6 weeks out.
-     If a net credit cannot be collected on the roll, take the loss and close instead.
+  2. Stop-loss (PUTS only): BTC when the loss reaches stop_loss_pct of premium received,
+     capping runaway losses on a CSP whose underlying keeps falling.
+  3. 21 DTE roll: when DTE <= 21 and not at the profit target, roll DOWN-and-out to
+     4-6 weeks at a lower strike, priced off the REAL NBBO. Only rolls if it collects a
+     genuine net credit (new bid - current ask); otherwise it closes. Uses limit orders.
 
 OCC symbol format: <TICKER><YYMMDD><C|P><STRIKE×1000 zero-padded to 8 digits>
 Example: AAPL260117P00150000 = AAPL Jan 17 2026 $150 Put
@@ -101,6 +104,7 @@ PROFIT_CLOSE_THRESHOLD = 0.50   # 50% of max profit
 DTE_ROLL_THRESHOLD = 21          # calendar days
 ROLL_WEEKS_MIN = 4
 ROLL_WEEKS_MAX = 6
+LIMIT_SLIPPAGE = 0.03            # marketable-limit buffer over/under the NBBO so orders fill
 
 
 class PositionManager:
@@ -112,6 +116,11 @@ class PositionManager:
         self.cfg = settings or cfg_module.load()
         self._alpaca = alpaca_client
         self._db = db_logger
+        pm = getattr(self.cfg, "position_management", None)
+        # stop_loss as a fraction of premium (250% -> 2.5); 0/None disables the stop.
+        slp = getattr(pm, "stop_loss_pct", None) if pm else None
+        self.stop_loss_frac = (slp / 100.0) if slp else None
+        self.roll_otm_buffer = getattr(pm, "roll_otm_buffer", 0.05) if pm else 0.05
 
     # -------------------------------------------------------------------
     # Public API
@@ -140,11 +149,26 @@ class PositionManager:
 
         print(f"[PM] Checking {len(option_positions)} option position(s)")
 
+        # Symbols that already have a working order — never double-submit. Limit orders
+        # (unlike the old market orders) can rest unfilled across loop cycles, so without
+        # this guard a slow fill would get a duplicate order every ~60s.
+        working_orders = set()
+        if self._alpaca:
+            try:
+                working_orders = {o.get("symbol") for o in self._alpaca.get_open_orders()}
+            except Exception as e:
+                print(f"[PM] could not fetch open orders ({e}) — skipping this cycle to be safe")
+                return result
+
         for pos in option_positions:
             symbol = pos.get("symbol", "")
             parsed = _parse_occ(symbol)
             if not parsed:
                 print(f"[PM] Cannot parse OCC symbol '{symbol}' — skipping")
+                continue
+
+            if symbol in working_orders:
+                print(f"[PM] {symbol} already has a working order — skipping this cycle")
                 continue
 
             current_mark = _compute_current_mark(pos)
@@ -178,7 +202,24 @@ class PositionManager:
                     result["closed"].append(symbol)
                 continue
 
-            # --- Rule 2: 21-DTE roll ---
+            # --- Rule 2: stop-loss (short PUTS only) ---
+            # A CSP whose underlying keeps falling has no upside; cap the loss instead
+            # of waiting for the 21-DTE roll. Covered calls are excluded — a deep-ITM
+            # short call means the shares appreciated, which is not a loss to cut.
+            if (
+                self.stop_loss_frac is not None
+                and parsed["option_type"] == "P"
+                and profit_pct <= -self.stop_loss_frac
+            ):
+                closed = self._close_position(
+                    pos, parsed, current_mark, profit_pct,
+                    reason=f"stop-loss ({profit_pct:.0%} <= -{self.stop_loss_frac:.0%})",
+                )
+                if closed:
+                    result["closed"].append(symbol)
+                continue
+
+            # --- Rule 3: 21-DTE roll ---
             if dte <= DTE_ROLL_THRESHOLD:
                 rolled = self._roll_position(pos, parsed, current_mark, profit_pct)
                 if rolled:
@@ -216,11 +257,17 @@ class PositionManager:
             return False
 
         try:
+            # Marketable LIMIT at the ask (never a market order — those are rejected
+            # outside RTH and slip badly on wide option spreads).
+            quote = self._alpaca.get_option_quote(symbol)
+            ref = (quote["ask"] if quote and quote.get("ask") else current_mark)
+            limit_price = round(ref * (1 + LIMIT_SLIPPAGE), 2)
             self._alpaca.submit_option_order(
                 symbol=symbol,
                 qty=qty,
                 side="buy",
-                order_type="market",
+                order_type="limit",
+                limit_price=limit_price,
             )
         except Exception as e:
             print(f"[PM] BTC order failed for {symbol}: {e}")
@@ -312,6 +359,16 @@ class PositionManager:
             print(f"[PM] (dry-run — no alpaca client)")
             return False
 
+        # Real cost to buy back the current leg (its ask), and the underlying spot
+        # used to target a down-and-out strike.
+        cur_q = self._alpaca.get_option_quote(symbol)
+        current_ask = cur_q["ask"] if cur_q and cur_q.get("ask") else current_mark
+        try:
+            bars = self._alpaca.get_bars(ticker, "1Min", 1)
+            spot = float(bars[-1]["c"]) if bars else strike
+        except Exception:
+            spot = strike
+
         # --- Find new expiry (4-6 weeks out) ---
         from datetime import timedelta
         today = date.today()
@@ -340,8 +397,17 @@ class PositionManager:
             print(f"[PM] No contracts found for {ticker} roll — cannot roll {symbol}")
             return False
 
-        # Select nearest available strike to the current one
-        new_target = min(new_contracts, key=lambda c: abs(float(c.get("strike_price", 0)) - strike))
+        # --- Select a DOWN-and-out strike (puts) / up-and-out (calls) ---
+        # Puts: roll to a strike <= spot*(1-buffer) and never above the old strike, so
+        # the new short is OTM again rather than re-selling the same deep-ITM strike.
+        if option_type == "P":
+            target_strike = min(strike, spot * (1 - self.roll_otm_buffer))
+            pool = [c for c in new_contracts if float(c.get("strike_price", 0)) <= target_strike]
+        else:
+            target_strike = max(strike, spot * (1 + self.roll_otm_buffer))
+            pool = [c for c in new_contracts if float(c.get("strike_price", 0)) >= target_strike]
+        pool = pool or new_contracts
+        new_target = min(pool, key=lambda c: abs(float(c.get("strike_price", 0)) - target_strike))
         new_strike = float(new_target.get("strike_price", 0))
         new_symbol = new_target.get("symbol", "")
 
@@ -349,38 +415,33 @@ class PositionManager:
             print(f"[PM] New contract has no symbol — cannot roll {symbol}")
             return False
 
-        # --- Estimate net credit ---
-        # We can't fetch a real quote without a quote endpoint, so we estimate:
-        # new_mark ≈ current_mark × (new_DTE / current_DTE) if same strike,
-        # otherwise use avg_entry as a conservative proxy for what we can collect.
-        # The position will only be rolled if new premium >= current BTC cost.
-        new_dte = (date.fromisoformat(new_expiry_str) - today).days
-        current_dte = max(parsed["dte"], 1)
-        estimated_new_credit = current_mark * (new_dte / current_dte)
-
-        # Net credit = estimated new sale - cost to BTC current
-        net_credit = estimated_new_credit - current_mark
+        # --- REAL net credit from the NBBO: collect new bid, pay current ask ---
+        new_q = self._alpaca.get_option_quote(new_symbol)
+        new_bid = new_q["bid"] if new_q and new_q.get("bid") else 0.0
+        net_credit = new_bid - current_ask
 
         if net_credit <= MIN_ROLL_NET_CREDIT:
             print(
-                f"[PM] Roll {symbol} → {new_symbol}: estimated net credit "
-                f"${net_credit:.4f} <= 0 — closing instead"
+                f"[PM] Roll {symbol} → {new_symbol}: real net credit "
+                f"${net_credit:.2f}/sh (new_bid {new_bid:.2f} - cur_ask {current_ask:.2f}) "
+                f"<= 0 — closing instead"
             )
             return False
 
         print(
-            f"[PM] Rolling {symbol} → {new_symbol}  "
-            f"strike={new_strike}  new_expiry={new_expiry_str}  "
-            f"est_net_credit=${net_credit:.4f}"
+            f"[PM] Rolling {symbol} → {new_symbol}  strike {strike}→{new_strike}  "
+            f"exp {new_expiry_str}  net_credit=${net_credit:.2f}/sh "
+            f"(${net_credit * qty * 100:.0f} total)"
         )
 
-        # --- Execute BTC on old leg ---
+        # --- Execute BTC on old leg (marketable limit at ask) ---
         try:
             self._alpaca.submit_option_order(
                 symbol=symbol,
                 qty=qty,
                 side="buy",
-                order_type="market",
+                order_type="limit",
+                limit_price=round(current_ask * (1 + LIMIT_SLIPPAGE), 2),
             )
         except Exception as e:
             print(f"[PM] Roll BTC leg failed for {symbol}: {e}")
@@ -392,13 +453,14 @@ class PositionManager:
             )
             return False
 
-        # --- Execute STO on new leg ---
+        # --- Execute STO on new leg (marketable limit at bid) ---
         try:
             self._alpaca.submit_option_order(
                 symbol=new_symbol,
                 qty=qty,
                 side="sell",
-                order_type="market",
+                order_type="limit",
+                limit_price=round(new_bid * (1 - LIMIT_SLIPPAGE), 2),
             )
         except Exception as e:
             print(f"[PM] Roll STO leg failed for {new_symbol}: {e}")
@@ -418,7 +480,7 @@ class PositionManager:
             insight=(
                 f"ROLL {symbol} → {new_symbol}  "
                 f"new_expiry={new_expiry_str} new_strike={new_strike}  "
-                f"profit_at_roll={profit_pct:.1%}  est_net_credit=${net_credit:.4f}"
+                f"profit_at_roll={profit_pct:.1%}  net_credit=${net_credit:.2f}/sh"
             ),
             metadata={
                 "old_symbol": symbol,
