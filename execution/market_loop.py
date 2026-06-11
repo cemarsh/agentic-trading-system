@@ -38,6 +38,10 @@ from execution.morning_briefing import MorningBriefing
 
 STATE_PATH = Path("logs/agent_state.json")
 HALT_ALERT_PATH = Path("logs/halt_pending_alert.json")
+# Deadman heartbeat — written at the top of every loop iteration. A systemd timer
+# (heartbeat_check.py) alerts if this goes stale during market hours, catching
+# hangs/crashes/silent stops that a halt-flag check alone would miss.
+HEARTBEAT_PATH = Path("logs/heartbeat")
 # DNS/connection blips tolerated for ~10 min (20 × 30s) before halting
 NETWORK_FAILURE_HALT_THRESHOLD = 20
 
@@ -134,6 +138,15 @@ def _flush_pending_halt_alert(notifier) -> None:
         print("[ALERT] Delayed halt alert delivered")
     except Exception as e:
         print(f"[ALERT] Failed to send delayed halt alert: {e}")
+
+
+def _write_heartbeat() -> None:
+    """Stamp the loop's liveness. Best-effort — never let a heartbeat write break the loop."""
+    try:
+        HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT_PATH.write_text(datetime.now(timezone.utc).isoformat())
+    except Exception:
+        pass
 
 
 def load_state() -> dict:
@@ -449,6 +462,9 @@ def run(mode: str):
 
     while True:
         try:
+            # --- Liveness heartbeat (first thing every cycle, incl. market-closed sleeps) ---
+            _write_heartbeat()
+
             # --- Hardware Check ---
             metrics = hw.sample()
             if hw.check_thresholds(metrics):

@@ -1,0 +1,27 @@
+[Unit]
+Description=Agentic Trading System
+After=network-online.target
+Wants=network-online.target
+# Stop the infinite halt->exit->restart loop. If the loop fails 5 times within
+# 5 minutes, systemd gives up and the unit enters `failed` state instead of
+# respawning forever (it once spun 1800+ times, silently, for 5 days).
+StartLimitIntervalSec=300
+StartLimitBurst=5
+# When it gives up, fire a loud alert (email + Slack).
+OnFailure=trading-alert.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/projects/trading
+EnvironmentFile=/home/ubuntu/projects/trading/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/projects/trading/venv/bin/python execution/market_loop.py --mode paper
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading
+
+[Install]
+WantedBy=multi-user.target

@@ -10,6 +10,9 @@ logs/agent_state.json
 logs/*.log
 logs/insights/*.jsonl
 logs/policy_signal_cache.json
+logs/heartbeat
+logs/heartbeat_alert.json
+logs/halt_pending_alert.json
 
 # Python
 __pycache__/

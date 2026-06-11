@@ -1,0 +1,11 @@
+[Unit]
+Description=Trading System failure alert (OnFailure handler for trading.service)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/projects/trading
+EnvironmentFile=/home/ubuntu/projects/trading/.env
+ExecStart=/home/ubuntu/projects/trading/venv/bin/python execution/alert_on_failure.py
