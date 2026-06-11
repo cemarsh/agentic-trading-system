@@ -115,3 +115,15 @@
 - [x] End-to-end test PASSED: 4 signals extracted/scored/upserted, research_briefs + workflow_runs logged
 - [x] Webhook URL: http://localhost:5678/webhook/trading/research-intake (OpenClaw)
 - [x] Configure Slack webhook (SLACK_WEBHOOK_URL) for high-conviction alerts (conviction >= 7) — done 2026-05-27, #agentic-ops-alerts
+
+## 2026-06-11 — Silent halt-loop outage RCA + monitoring hardening
+
+- [x] **RCA: 5-day silent outage (Jun 6–11)** — transient `ConnectionReset` burst set `halted=true` (`api_failures=3, network_failures=3`); `run()` exited 1 each start, systemd respawned every 30s (counter hit 1801), **no alert**. Auto-recovery missed it (keys on exact `api_failures<=2`). VM was also 10 commits behind `main` + redundant uncommitted hotfixes.
+- [x] **Restored** — cleared stale halt (backed up to `logs/agent_state.json.halt-bak-20260611`), `reset-failed`, restart → live again
+- [x] **Item 1 — systemd hardening** — `deploy/trading.service`: `StartLimitIntervalSec=300`/`StartLimitBurst=5` (enters `failed`, no infinite loop) + `OnFailure=trading-alert.service` → `execution/alert_on_failure.py`
+- [x] **Item 2 — heartbeat deadman** — loop writes `logs/heartbeat`; `execution/heartbeat_check.py` on `deploy/trading-heartbeat.timer` (5min) alerts on stale heartbeat >15min during market hours (alerts on stale, not missing, to avoid restart false-positives)
+- [x] **Item 5 — deployment drift fixed** — VM synced to `origin/main`; `deploy/deploy.sh` + `deploy/sync-check.sh` added. **v2.0 aggressive-growth now LIVE** (position_manager, iv_tracker, morning_briefing). Commits `8f57021`, `ee199e3`.
+- [ ] **Item 3 — retry transient errors** — wrap Alpaca/HTTP in urllib3 Retry/backoff; don't count `ConnectionResetError` toward halt threshold until retries exhaust
+- [ ] **Item 4 — smarter auto-recovery** — replace exact `api_failures` count with "last successful API call recent → probe + auto-clear"; only stay halted for genuine auth (401/403-auth) errors
+- [ ] **Bug — `verify_all()` NameError** — `market_loop.py` ~L328 calls undefined `ping_db()`/`test_email()` → `--verify-only` always crashes (main loop unaffected; should be `db_logger.ping(cfg)` + `notifier`/`test_send`)
+- [ ] Review v2.0 position_manager behavior on the 3 underwater puts flagged at deploy (CCJ −290%, CEG −67.8%, VST −51% @ 29 DTE)
