@@ -67,9 +67,16 @@ def main() -> None:
         except Exception:
             age = None
 
-    stale = age is None or age > STALE_SECONDS
+    # A MISSING heartbeat means the loop just (re)started and hasn't written its
+    # first stamp yet, or never ran at all — the latter is already covered by
+    # systemd's OnFailure= alert (Item 1). Alerting here would false-positive on
+    # every restart that races a timer tick, so we only treat a STALE heartbeat
+    # (written, then stopped updating) as a real hang.
+    if age is None:
+        print("[HEARTBEAT] no heartbeat yet (loop starting or not running) — deferring to systemd OnFailure")
+        return
 
-    if not stale:
+    if age <= STALE_SECONDS:
         if ALERT_STATE.exists():
             ALERT_STATE.unlink()  # recovered → re-arm so the next stall re-alerts
         print(f"[HEARTBEAT] OK — {age / 60:.1f} min old")
@@ -79,7 +86,7 @@ def main() -> None:
         print("[HEARTBEAT] stale but alerted within the last hour — suppressing")
         return
 
-    agestr = "missing" if age is None else f"{age / 60:.1f} min old"
+    agestr = f"{age / 60:.1f} min old"
     try:
         Notifier(cfg).critical_alert(
             f"Trading heartbeat is STALE during market hours (heartbeat {agestr}; "
