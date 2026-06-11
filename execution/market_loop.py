@@ -88,6 +88,23 @@ def _is_order_rejection(exc: Exception) -> bool:
     return resp.status_code in (403, 422) or code == 40310000
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    """True for a credentials/permissions failure (401, or a 403 that isn't an order
+    rejection). These never self-heal — a human must fix the key/permissions — so a
+    halt caused by one is NOT eligible for auto-recovery on restart."""
+    import requests as _req
+    if not isinstance(exc, _req.HTTPError):
+        return False
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return False
+    if resp.status_code == 401:
+        return True
+    if resp.status_code == 403 and not _is_order_rejection(exc):
+        return True
+    return False
+
+
 def _notify_order_rejection(exc: Exception, state: dict, notifier) -> None:
     """Email an order-rejection alert at most once per hour so the inbox isn't flooded
     when the account is consistently over the allocation cap."""
@@ -360,28 +377,44 @@ def verify_all(cfg) -> bool:
     return ok
 
 
-def _try_network_recovery(state: dict) -> None:
-    """On startup, probe connectivity after a network-driven halt.
-    Auto-clears the halt if DNS/TCP to Alpaca resolves — no manual reset needed
-    after transient outages. Pure API-failure halts are left to manual reset."""
-    import socket
+def _attempt_halt_recovery(state: dict, cfg) -> None:
+    """On startup with a halt flag set, decide whether to self-heal or stay halted.
+
+    Replaces the old brittle count rule (`network>=20 and api<=2`). Logic:
+      - A genuine AUTH halt (bad/expired key, permissions) never self-heals → stay
+        halted for a human to fix.
+      - Otherwise run a LIVE authenticated API probe (get_clock via AlpacaClient,
+        which carries Item-3 retries). If it succeeds, connectivity AND credentials
+        are confirmed healthy *now* → clear the halt and resume. If it fails → stay
+        halted. Any auto-recover→re-halt flapping is bounded by the systemd
+        StartLimitBurst, which alerts and stops the unit after a few fast cycles.
+    """
+    reason = state.get("halt_reason", "unknown")
     nf = state.get("network_failures", 0)
     af = state.get("api_failures", 0)
-    host = "paper-api.alpaca.markets"
-    print(f"[RECOVERY] Network-driven halt detected (network={nf}, api={af}) — probing {host}:443 ...")
+    last_err = state.get("last_halt_error", "")
+    last_ok = state.get("last_api_success", "never")
+
+    if reason == "auth":
+        print(f"[HALT] Auth/permission halt — will not auto-recover. Last error: {last_err}\n"
+              f"       Fix credentials, then reset logs/agent_state.json to resume.")
+        sys.exit(1)
+
+    print(f"[RECOVERY] Halt (reason={reason}, network={nf}, api={af}, "
+          f"last_api_success={last_ok}) — probing live API ...")
     try:
-        sock = socket.create_connection((host, 443), timeout=10)
-        sock.close()
-        print("[RECOVERY] Connectivity restored — auto-clearing halt and resuming")
+        clock = AlpacaClient(settings=cfg).get_clock()
+        print(f"[RECOVERY] Live API healthy (market_open={clock.get('is_open')}) — "
+              f"clearing halt and resuming")
         state["halted"] = False
         state["network_failures"] = 0
         state["api_failures"] = 0
+        state.pop("halt_reason", None)
         save_state(state)
         HALT_ALERT_PATH.unlink(missing_ok=True)
-        # Notify via Slack that auto-recovery succeeded
         _send_recovery_slack_alert(nf, af)
     except Exception as probe_err:
-        print(f"[HALT] Network still unreachable ({probe_err}). Staying halted.")
+        print(f"[HALT] Live API probe failed ({probe_err}). Staying halted.")
         sys.exit(1)
 
 
@@ -407,20 +440,9 @@ def run(mode: str):
     state = load_state()
 
     if state.get("halted"):
-        af = state.get("api_failures", 0)
-        nf = state.get("network_failures", 0)
-        # Auto-recover if halt was primarily network-driven:
-        #   - pure network halt (af == 0), OR
-        #   - mixed: mostly network failures with a small number of api_failures
-        #     (api_failures <= 2 means the "API" errors were almost certainly
-        #     the same DNS blip miscounted as API failures on the final attempts)
-        is_network_driven = nf >= NETWORK_FAILURE_HALT_THRESHOLD and af <= 2
-        if is_network_driven:
-            _try_network_recovery(state)
-        else:
-            print(f"[HALT] System halted — api_failures={af}, network_failures={nf}. "
-                  f"Reset logs/agent_state.json to resume.")
-            sys.exit(1)
+        # Self-heal transient/network halts via a live API probe; only genuine
+        # auth halts require a manual reset. (Supersedes the old exact-count rule.)
+        _attempt_halt_recovery(state, cfg)
 
     if mode == "live" and cfg.guardrails.paper_mode:
         print("[WARN] strategy_params.yaml has paper_mode: true. Set to false to enable live trading.")
@@ -714,6 +736,7 @@ def run(mode: str):
 
             state["api_failures"] = 0
             state["network_failures"] = 0
+            state["last_api_success"] = datetime.now(timezone.utc).isoformat()
             save_state(state)
             time.sleep(60)
 
@@ -732,6 +755,7 @@ def run(mode: str):
                     time.sleep(30)
                     continue
                 failure_label = f"{nf} consecutive network errors"
+                halt_reason = "network"
             elif _is_order_rejection(e):
                 # Business-logic rejection (e.g. insufficient buying power) — not an API
                 # malfunction. Log it and move on; never count toward the halt threshold.
@@ -749,13 +773,18 @@ def run(mode: str):
                     time.sleep(10)
                     continue
                 failure_label = f"{af} consecutive API failures"
+                # Auth/permission failures can't self-heal — mark so restart won't auto-recover.
+                halt_reason = "auth" if _is_auth_error(e) else "api"
 
             # --- HALT: write alert to disk first, email may also fail ---
             halt_info = {
                 "halted_at": datetime.now(timezone.utc).isoformat(),
                 "failure_label": failure_label,
+                "halt_reason": halt_reason,
                 "last_error": str(e),
             }
+            state["halt_reason"] = halt_reason
+            state["last_halt_error"] = str(e)
             try:
                 HALT_ALERT_PATH.parent.mkdir(parents=True, exist_ok=True)
                 with open(HALT_ALERT_PATH, "w") as hf:
