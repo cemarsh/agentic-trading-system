@@ -338,8 +338,17 @@ def run_scheduled_tasks(
 def verify_all(cfg) -> bool:
     ok = True
     ok &= verify_alpaca()
-    ok &= ping_db()
-    ok &= test_email()
+    # PostgreSQL + Resend are optional — only check them when configured.
+    if cfg.database.url:
+        from execution import db_logger
+        ok &= db_logger.ping(cfg)
+    else:
+        print("[SKIP] PostgreSQL — DATABASE_URL not set (logging disabled)")
+    if cfg.notifications.resend_key:
+        from execution.notifier import test_send
+        ok &= test_send(cfg)
+    else:
+        print("[SKIP] Resend — RESEND_API_KEY not set (email disabled)")
     hw = HardwareMonitor(settings=cfg)
     metrics = hw.sample()
     print(f"[OK] Hardware — CPU: {metrics['cpu_pct']:.1f}%, Temp: {metrics['temp_c']:.1f}°C")

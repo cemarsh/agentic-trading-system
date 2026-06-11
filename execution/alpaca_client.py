@@ -12,7 +12,38 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from config import settings as cfg_module
+
+
+def _build_retry_session() -> requests.Session:
+    """Session that transparently retries transient transport failures with
+    exponential backoff, so a brief blip (the ConnectionReset(104) bursts that
+    caused the Jun-2026 halt loop) never surfaces as an exception to count toward
+    the halt threshold.
+
+    Retries are scoped to GET/HEAD/OPTIONS only — order POSTs are NOT read-retried
+    (a reset mid-submit could double-fill). Connection-*establishment* failures are
+    still retried for all methods (the request never reached the server, so it's safe).
+    """
+    retry = Retry(
+        total=4,
+        connect=4,
+        read=3,
+        status=3,
+        backoff_factor=1.0,  # sleeps ~0, 1, 2, 4s between attempts
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session = requests.Session()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 class AlpacaClient:
@@ -24,15 +55,16 @@ class AlpacaClient:
         }
         self.base_url = self.cfg.alpaca.base_url
         self.data_url = "https://data.alpaca.markets"
+        self._session = _build_retry_session()
 
     def _get(self, path: str, params: dict = None, data_api: bool = False) -> dict:
         base = self.data_url if data_api else self.base_url
-        resp = requests.get(f"{base}{path}", headers=self._headers, params=params, timeout=20)
+        resp = self._session.get(f"{base}{path}", headers=self._headers, params=params, timeout=20)
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, path: str, body: dict) -> dict:
-        resp = requests.post(
+        resp = self._session.post(
             f"{self.base_url}{path}",
             headers={**self._headers, "Content-Type": "application/json"},
             json=body,
