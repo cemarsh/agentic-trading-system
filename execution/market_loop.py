@@ -179,6 +179,49 @@ def save_state(state: dict):
         json.dump(state, f, indent=2, default=str)
 
 
+def check_wheel_eligibility(cfg, alpaca, notifier, state) -> None:
+    """Alert when a matrix ticker that previously had NO listed options gains them
+    — i.e. it just became wheel-eligible (CSPs can now be sold). Tracks the set of
+    currently-optionless matrix tickers in state; alerts on the optionless→optionable
+    transition. First run only records a baseline (no alert)."""
+    if not alpaca:
+        return
+    current_optionless = set()
+    for t in cfg.wheel.tickers:
+        try:
+            # Query PUTS directly — get_options_contracts() returns only the first
+            # 100 contracts, which for liquid names can be all calls (false negative).
+            puts = alpaca._get(
+                "/v2/options/contracts",
+                params={"underlying_symbols": t, "type": "put", "limit": 1},
+            ).get("option_contracts", [])
+            has_puts = len(puts) > 0
+        except Exception:
+            has_puts = True  # fetch error → don't false-alert
+        if not has_puts:
+            current_optionless.add(t)
+
+    prev = state.get("optionless_tickers")
+    if prev is None:  # baseline only on first run
+        state["optionless_tickers"] = sorted(current_optionless)
+        save_state(state)
+        return
+
+    newly_eligible = sorted(set(prev) - current_optionless)
+    for t in newly_eligible:
+        msg = f"{t} is now WHEEL-ELIGIBLE — options have listed; the wheel can sell CSPs on it."
+        print(f"[WHEEL] {msg}")
+        log_insight(source="wheel", category="signal", insight=msg, metadata={"ticker": t})
+        if notifier:
+            try:
+                notifier.send(subject=f"[WHEEL] {t} now wheel-eligible (options listed)", body=msg)
+                notifier.send_slack(f":white_check_mark: *Wheel-eligible:* {msg}")
+            except Exception as e:
+                print(f"[WHEEL] eligibility alert failed: {e}")
+    state["optionless_tickers"] = sorted(current_optionless)
+    save_state(state)
+
+
 def run_scheduled_tasks(
     state: dict,
     cfg,
@@ -353,6 +396,16 @@ def run_scheduled_tasks(
             save_state(state)
         except Exception as dse:
             print(f"[DERIV] Scan error: {dse}")
+
+    # --- Wheel-eligibility watch — alert when a matrix ticker gains options ---
+    elig_due = is_weekday and is_iv_window and state.get("last_eligibility_check") != today_et
+    if elig_due:
+        try:
+            check_wheel_eligibility(cfg, alpaca, notifier, state)
+            state["last_eligibility_check"] = today_et
+            save_state(state)
+        except Exception as ee:
+            print(f"[WHEEL] eligibility check error: {ee}")
 
     # --- Morning briefing (Mon–Fri, 9:00–9:29 AM ET, once per day) ---
     is_briefing_window = now_et.hour == 9 and now_et.minute < 30
