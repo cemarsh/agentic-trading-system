@@ -86,6 +86,10 @@ wheel:
     # === MOMENTUM / EVENT-DRIVEN ADDITIONS (v2.0) ===
     - "RKLB"  # SpaceX competitor, Space Force contracts, breakout candidate
     - "KTOS"  # Drone autonomy, Skyborg program, DoD pipeline
+    # === RECENT-IPO WATCHLIST (2026-06-13) — no options yet; wheel auto-skips until puts list ===
+    - "FJET"  # Starfighters Space — equity starter held; wheel-eligible once options list
+    - "OPTX"  # Syntec Optics — equity starter held; wheel-eligible once options list
+    - "AADX"  # Applied Aerospace & Defense — equity starter held; wheel-eligible once options list
   target_delta: 0.25             # Tightened from 0.30 — more conservative in volatile market
   expiration_weeks: 2            # Weeks to expiration at entry
   cc_strike_markup_pct: 2.0      # CC strike = cost_basis * (1 + this/100)
