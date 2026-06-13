@@ -329,6 +329,31 @@ def run_scheduled_tasks(
         except Exception as ive:
             print(f"[IV] Snapshot error: {ive}")
 
+    # --- IPO scan (Mon–Fri, 8:30–8:59 AM ET, once/day) — broadens the universe ---
+    ipo_due = is_weekday and is_iv_window and state.get("last_ipo_scan") != today_et
+    if ipo_due:
+        try:
+            from execution.ipo_calendar import IPOCalendar
+            res = IPOCalendar(settings=cfg, alpaca_client=alpaca, db_logger=db,
+                              notifier=notifier).scan(days=10)
+            state["last_ipo_scan"] = today_et
+            save_state(state)
+            if res.get("watchlist"):
+                print(f"[IPO] watchlist: {', '.join(res['watchlist'][:15])}")
+        except Exception as ipe:
+            print(f"[IPO] Scan error: {ipe}")
+
+    # --- Derivatives (IV-rank) scan — runs after the IV snapshot so history is fresh ---
+    deriv_due = is_weekday and is_iv_window and state.get("last_derivatives_scan") != today_et
+    if deriv_due:
+        try:
+            from execution.derivatives_signals import DerivativesSignals
+            DerivativesSignals(settings=cfg, db_logger=db).scan(list(cfg.wheel.tickers))
+            state["last_derivatives_scan"] = today_et
+            save_state(state)
+        except Exception as dse:
+            print(f"[DERIV] Scan error: {dse}")
+
     # --- Morning briefing (Mon–Fri, 9:00–9:29 AM ET, once per day) ---
     is_briefing_window = now_et.hour == 9 and now_et.minute < 30
     briefing_due = (

@@ -341,6 +341,43 @@ def log_ipo_scan(ipos: list, watchlist: list, optionable: list, settings=None) -
     return {"brief_id": str(brief_id), "signals_inserted": inserted}
 
 
+def log_derivatives_signals(rows: list, settings=None) -> int:
+    """Persist 'rich premium' (high IV-rank) names as derivatives trading_signals.
+    Dedups against existing active derivatives signals per ticker."""
+    cfg = settings or cfg_module.load()
+    Json = psycopg2.extras.Json
+    inserted = 0
+    with get_connection(cfg) as conn:
+        with conn.cursor() as cur:
+            for r in rows:
+                t = r["ticker"]
+                cur.execute(
+                    "SELECT 1 FROM trading_signals "
+                    "WHERE ticker=%s AND source_type='derivatives' AND status='active' LIMIT 1",
+                    (t,),
+                )
+                if cur.fetchone():
+                    continue
+                ivr = r.get("iv_rank") or 0.5
+                conviction = min(10, max(1, int(round(ivr * 10))))  # IVR 0.8 -> conviction 8
+                cur.execute(
+                    """INSERT INTO trading_signals
+                           (ticker, direction, thesis, source_type, conviction,
+                            wheel_eligible, suggested_strategy, premium_environment, catalysts)
+                       VALUES (%s, 'neutral', %s, 'derivatives', %s, true, 'wheel', 'rich', %s)""",
+                    (
+                        t,
+                        f"Rich options premium — IV rank {ivr * 100:.0f}%; favorable for selling CSP/CC.",
+                        conviction,
+                        Json(["high_iv_rank"]),
+                    ),
+                )
+                inserted += 1
+        conn.commit()
+    print(f"[DERIV] persisted {inserted} derivatives signal(s)")
+    return inserted
+
+
 class DBLogger:
     """Class wrapper around standalone logging functions for use in market_loop."""
 
@@ -364,6 +401,9 @@ class DBLogger:
 
     def log_ipo_scan(self, ipos: list, watchlist: list, optionable: list) -> dict:
         return log_ipo_scan(ipos, watchlist, optionable, settings=self._settings)
+
+    def log_derivatives_signals(self, rows: list) -> int:
+        return log_derivatives_signals(rows, settings=self._settings)
 
 
 def ping(settings=None) -> bool:

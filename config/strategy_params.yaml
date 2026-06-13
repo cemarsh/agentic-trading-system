@@ -92,6 +92,7 @@ wheel:
   min_premium_pct: 0.8           # Raised from 0.5 — elevated IV means we can demand more
   max_portfolio_pct_per_trade: 15.0  # Max % of equity per CSP (e.g. 15% of $100k = $15k/position)
   max_wheel_allocation_pct: 65       # Stop opening new CSPs above this % of equity in margin
+  min_iv_rank: 0.30                  # Derivatives gate: only sell CSPs when IV rank >= 30% (fail-open if no IV history)
 
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)

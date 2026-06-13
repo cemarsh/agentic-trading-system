@@ -73,6 +73,7 @@ class WheelConfig:
     min_premium_pct: float
     max_portfolio_pct_per_trade: float
     max_wheel_allocation_pct: float
+    min_iv_rank: float = 0.0  # only sell CSPs when IV rank >= this (0–1); 0 disables the gate
 
 
 @dataclass

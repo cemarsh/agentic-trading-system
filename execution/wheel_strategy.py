@@ -70,6 +70,22 @@ class WheelStrategy:
             print(f"[WHEEL] {ticker} already in stage {pos.stage}, skipping CSP open")
             return None
 
+        # --- Guard 0: IV-rank gate (only sell premium when it's rich enough) ---
+        # Selling a CSP in a low-IV environment collects too little premium for the
+        # downside risk. Skip when IV rank is below the floor. Fail-open: if we have
+        # no IV history for the name, don't block the trade — just log.
+        min_ivr = getattr(self.cfg.wheel, "min_iv_rank", 0.0) or 0.0
+        if min_ivr and getattr(self.cfg, "database", None) and self.cfg.database.url:
+            try:
+                from execution.iv_tracker import get_iv_rank
+                ivr = get_iv_rank(ticker, self.cfg.database.url).get("iv_rank")
+                if ivr is not None and ivr < min_ivr:
+                    print(f"[WHEEL] {ticker} — IV rank {ivr:.0%} < {min_ivr:.0%} floor, "
+                          f"skipping CSP (premium too cheap)")
+                    return None
+            except Exception as e:
+                print(f"[WHEEL] {ticker} — IV gate check skipped ({e})")
+
         # --- Allocation guards ---
         try:
             account = self._alpaca.get_account()
