@@ -140,7 +140,7 @@ Trigger: system captured **nothing** on the SpaceX IPO (narrow inputs: whale + p
 - [x] **Wheel IV-gate** — `open_csp` skips CSPs when IV rank < `wheel.min_iv_rank` (0.30); fail-open with thin IV history.
 - [x] Wired both into `run_scheduled_tasks` (daily ~8:30am ET); deployed to VM (HEAD 121fe73, active).
 - [ ] **NotebookLM producer** — `nlm` CLI + Chrome installed on VM 117; **user owns Google auth + wiring**.
-- [ ] **Add TRADIER_TOKEN** to `.env` → unlocks options-flow (volume/OI) + reliable IV (Alpaca tier is quotes-only). iv_tracker Tradier path already exists.
+- [ ] **Verify (during market hours)** whether Alpaca's options snapshot exposes OI/volume for unusual-flow. IV already works on the existing Alpaca token (indicative feed, RTH-only) — earlier "quotes-only / need Tradier" was an after-hours testing artifact. Only consider an external feed if the RTH check shows Alpaca lacks OI/volume.
 - [ ] Promote vetted IPO watchlist names into the tradable wheel universe (manual; fresh IPOs lack options for weeks).
 - [ ] Optional: earnings calendar + general market-news scanner (further breadth).
 - [ ] Optional: surface IPO watchlist + rich-premium names in the morning briefing (currently journal only).
