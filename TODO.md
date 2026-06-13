@@ -130,3 +130,17 @@
 - [x] **Closed CCJ** per decision (close worst only, hold CEG/VST to wheel) — GTC buy-to-close limit resting (mkt was closed); fills at next open. CEG/VST held (below 250% stop, DTE>21).
 - [ ] At next open: confirm CCJ GTC filled; watch PM apply new rules to CEG/VST (stop at -250%, down-and-out roll at 21 DTE ≈ Jun 19)
 - [ ] Consider delta-exact roll-strike selection (currently OTM-buffer approximation) + wiring the existing PM module constants (50%/21DTE) to config like the new keys
+
+## 2026-06-13 — Broaden methodology: IPO + derivatives signal sources
+
+Trigger: system captured **nothing** on the SpaceX IPO (narrow inputs: whale + policy + fixed wheel list + SPY regime).
+
+- [x] **IPO calendar** (`execution/ipo_calendar.py`, commit b13c048) — SEC EDGAR 424B4 (Nasdaq API is IP-blocked); filters SPACs + established-company secondaries (CEG false-positive dropped via price-history length); checks Alpaca tradability/options; persists research_briefs + trading_signals(source_type='ipo'). **SPCX (SpaceX) is now the first trading_signals row.**
+- [x] **Derivatives signals** (`execution/derivatives_signals.py`, commit 121fe73) — IV-rank premium environment (rich/normal/cheap); persists 'rich' names as derivatives signals.
+- [x] **Wheel IV-gate** — `open_csp` skips CSPs when IV rank < `wheel.min_iv_rank` (0.30); fail-open with thin IV history.
+- [x] Wired both into `run_scheduled_tasks` (daily ~8:30am ET); deployed to VM (HEAD 121fe73, active).
+- [ ] **NotebookLM producer** — `nlm` CLI + Chrome installed on VM 117; **user owns Google auth + wiring**.
+- [ ] **Add TRADIER_TOKEN** to `.env` → unlocks options-flow (volume/OI) + reliable IV (Alpaca tier is quotes-only). iv_tracker Tradier path already exists.
+- [ ] Promote vetted IPO watchlist names into the tradable wheel universe (manual; fresh IPOs lack options for weeks).
+- [ ] Optional: earnings calendar + general market-news scanner (further breadth).
+- [ ] Optional: surface IPO watchlist + rich-premium names in the morning briefing (currently journal only).
