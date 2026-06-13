@@ -289,6 +289,58 @@ def get_lessons(days: int = 7, settings=None) -> list:
             return [dict(row) for row in cur.fetchall()]
 
 
+def log_ipo_scan(ipos: list, watchlist: list, optionable: list, settings=None) -> dict:
+    """Persist an IPO scan: one research_brief summary + a trading_signal per
+    actionable (new, tradable) name. Dedups against existing active 'ipo' signals."""
+    cfg = settings or cfg_module.load()
+    Json = psycopg2.extras.Json
+    summary = (
+        f"IPO scan: {len(ipos)} recent 424B4 filings; {len(watchlist)} new/tradable, "
+        f"{len(optionable)} optionable. Watchlist: {', '.join(watchlist[:25]) or '(none)'}"
+    )
+    by_ticker = {i["ticker"]: i for i in ipos}
+    inserted = 0
+    with get_connection(cfg) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO research_briefs
+                       (content, source, signal_count, top_conviction, tickers_mentioned)
+                   VALUES (%s, 'edgar_ipo', %s, %s, %s) RETURNING id""",
+                (summary, len(watchlist), 5 if optionable else 4, Json(watchlist)),
+            )
+            brief_id = cur.fetchone()[0]
+            for t in watchlist:
+                cur.execute(
+                    "SELECT 1 FROM trading_signals "
+                    "WHERE ticker=%s AND source_type='ipo' AND status='active' LIMIT 1",
+                    (t,),
+                )
+                if cur.fetchone():
+                    continue
+                info = by_ticker.get(t, {})
+                has_opt = bool(info.get("has_options"))
+                cur.execute(
+                    """INSERT INTO trading_signals
+                           (ticker, direction, thesis, source_type, conviction,
+                            wheel_eligible, suggested_strategy, source_brief_id, catalysts)
+                       VALUES (%s, 'neutral', %s, 'ipo', %s, %s, %s, %s, %s)""",
+                    (
+                        t,
+                        f"Recent IPO — {info.get('company', '?')} priced {info.get('file_date', '?')}; "
+                        f"{'options listed' if has_opt else 'no options yet'}.",
+                        5 if has_opt else 4,
+                        has_opt,
+                        "wheel" if has_opt else None,
+                        brief_id,
+                        Json(["ipo_pricing"]),
+                    ),
+                )
+                inserted += 1
+        conn.commit()
+    print(f"[IPO] persisted research_brief + {inserted} new trading_signal(s)")
+    return {"brief_id": str(brief_id), "signals_inserted": inserted}
+
+
 class DBLogger:
     """Class wrapper around standalone logging functions for use in market_loop."""
 
@@ -309,6 +361,9 @@ class DBLogger:
 
     def get_lessons(self, days: int = 7) -> list:
         return get_lessons(days=days, settings=self._settings)
+
+    def log_ipo_scan(self, ipos: list, watchlist: list, optionable: list) -> dict:
+        return log_ipo_scan(ipos, watchlist, optionable, settings=self._settings)
 
 
 def ping(settings=None) -> bool:

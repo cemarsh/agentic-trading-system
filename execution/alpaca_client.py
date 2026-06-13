@@ -88,10 +88,14 @@ class AlpacaClient:
     def get_positions(self) -> list:
         return self._get("/v2/positions")
 
-    def get_bars(self, ticker: str, timeframe: str = "1Min", limit: int = 10) -> list:
+    def get_bars(self, ticker: str, timeframe: str = "1Min", limit: int = 10,
+                 start: str = None) -> list:
+        params = {"timeframe": timeframe, "limit": limit}
+        if start:
+            params["start"] = start  # ISO date; required to get >1 day of history on the free feed
         data = self._get(
             f"/v2/stocks/{ticker}/bars",
-            params={"timeframe": timeframe, "limit": limit},
+            params=params,
             data_api=True,
         )
         return data.get("bars") or []

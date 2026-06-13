@@ -40,6 +40,7 @@ MEM_PATH = PROJECT_ROOT / "MEM.md"
 VALID_SOURCES = {
     "wheel", "whale_watch", "policy", "regime", "hedge",
     "protection", "advisor", "notebooklm", "manual", "system",
+    "ipo", "derivatives",
 }
 VALID_CATEGORIES = {"signal", "decision", "observation", "error", "learning"}
 
