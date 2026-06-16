@@ -82,6 +82,7 @@ class ProtectionConfig:
     gap_tighten_pct: float
     ladder_drop_pct: float
     ladder_buy_shares: int
+    max_ladder_rungs: int = 3  # hard cap on ladder buys per ticker (prevents runaway averaging-down)
 
 
 @dataclass

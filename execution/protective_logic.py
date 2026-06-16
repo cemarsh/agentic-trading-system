@@ -35,6 +35,7 @@ class ProtectiveLogic:
         self._db = db_logger
         self._positions: Dict[str, EquityPosition] = {}
         self._ladder_counts: Dict[str, int] = {}
+        self._ladder_last_price: Dict[str, float] = {}
 
     def sync_positions(self, alpaca_positions: list):
         """Sync internal state from live Alpaca position data. Skips options contracts."""
@@ -85,16 +86,27 @@ class ProtectiveLogic:
                 print(f"[GAP] {ticker} stop tightened to ${pos.stop_price:.2f}")
 
     def check_ladder(self, ticker: str, current_price: float) -> bool:
-        """Returns True if a ladder buy should be triggered."""
+        """Returns True if a ladder buy should be triggered.
+
+        Bounded two ways so it can never run away (the FJET 2026-06-16 incident):
+          1. Hard cap on rungs per ticker (max_ladder_rungs).
+          2. Each rung must be a *further* step down — drop is measured from the
+             LAST ladder buy (or original entry for the first rung), not from a
+             fixed reference that stays True every cycle.
+        """
         if ticker not in self._positions:
             return False
-        pos = self._positions[ticker]
         prot = self.cfg.protection
-        drop_pct = (pos.entry_price - current_price) / pos.entry_price * 100
+        if self._ladder_counts.get(ticker, 0) >= getattr(prot, "max_ladder_rungs", 3):
+            return False
+        pos = self._positions[ticker]
+        reference = self._ladder_last_price.get(ticker, pos.entry_price)
+        drop_pct = (reference - current_price) / reference * 100
         return drop_pct >= prot.ladder_drop_pct
 
-    def execute_ladder(self, ticker: str) -> Optional[dict]:
-        """Submit a ladder buy order."""
+    def execute_ladder(self, ticker: str, current_price: float = None) -> Optional[dict]:
+        """Submit a ladder buy order and record the rung price (next rung needs a
+        further step down from here)."""
         if not self._alpaca:
             return None
         prot = self.cfg.protection
@@ -105,6 +117,8 @@ class ProtectiveLogic:
             order_type="market",
         )
         self._ladder_counts[ticker] = self._ladder_counts.get(ticker, 0) + 1
+        if current_price is not None:
+            self._ladder_last_price[ticker] = current_price
         pos = self._positions.get(ticker)
         log_insight(
             source="protection",

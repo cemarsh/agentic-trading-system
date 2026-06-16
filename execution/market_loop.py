@@ -622,7 +622,7 @@ def run(mode: str):
 
             for ticker, price in current_prices.items():
                 if protection.check_ladder(ticker, price):
-                    protection.execute_ladder(ticker)
+                    protection.execute_ladder(ticker, price)
 
             # --- Regime Detection ---
             prev_regime = current_regime

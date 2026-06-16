@@ -101,8 +101,9 @@ wheel:
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
   gap_tighten_pct: 3.0           # Additional tightening on gap-down signal (%)
-  ladder_drop_pct: 5.0           # Drawdown % from entry to trigger ladder buy
+  ladder_drop_pct: 5.0           # Drawdown % from the last rung (or entry) to trigger the next ladder buy
   ladder_buy_shares: 10          # Shares per ladder buy
+  max_ladder_rungs: 3            # Hard cap: at most this many ladder buys per ticker (prevents runaway)
 
 guardrails:
   manual_confirm_threshold: 5000 # Orders above this $ require explicit CONFIRM
