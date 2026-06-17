@@ -1,0 +1,11 @@
+[Unit]
+Description=FJET breakeven exit monitor (re-arm GTC sell + alert on completion)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/projects/trading
+EnvironmentFile=/home/ubuntu/projects/trading/.env
+ExecStart=/home/ubuntu/projects/trading/venv/bin/python execution/breakeven_monitor.py
