@@ -83,6 +83,7 @@ class ProtectionConfig:
     ladder_drop_pct: float
     ladder_buy_shares: int
     max_ladder_rungs: int = 3  # hard cap on ladder buys per ticker (prevents runaway averaging-down)
+    no_auto_manage: list = None  # tickers the protective logic ignores (no trailing stop / no ladder)
 
 
 @dataclass

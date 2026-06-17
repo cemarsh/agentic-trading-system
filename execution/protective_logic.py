@@ -40,10 +40,13 @@ class ProtectiveLogic:
     def sync_positions(self, alpaca_positions: list):
         """Sync internal state from live Alpaca position data. Skips options contracts."""
         prot = self.cfg.protection
+        excluded = set(getattr(prot, "no_auto_manage", None) or [])
         for p in alpaca_positions:
             ticker = p["symbol"]
             if _OPTIONS_SYMBOL_RE.match(ticker):
                 continue  # options managed by wheel, not protective logic
+            if ticker in excluded:
+                continue  # manual-hold (e.g. IPO starters) — no trailing stop / no ladder
             qty = int(p["qty"])
             current_price = float(p.get("current_price", p.get("avg_entry_price", 0)))
             entry = float(p.get("avg_entry_price", current_price))

@@ -104,6 +104,7 @@ protection:
   ladder_drop_pct: 5.0           # Drawdown % from the last rung (or entry) to trigger the next ladder buy
   ladder_buy_shares: 10          # Shares per ladder buy
   max_ladder_rungs: 3            # Hard cap: at most this many ladder buys per ticker (prevents runaway)
+  no_auto_manage: ["FJET", "OPTX", "AADX"]  # IPO starters — no trailing stop / no ladder (manual breakeven exit)
 
 guardrails:
   manual_confirm_threshold: 5000 # Orders above this $ require explicit CONFIRM
