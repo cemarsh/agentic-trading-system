@@ -27,6 +27,14 @@ else
   echo "==> Already in sync at $LOCAL"
 fi
 
+# The pull above may have rewritten THIS script; bash is still running the old
+# in-memory copy, so re-exec the freshly-pulled version once (guarded against loops)
+# so newly-added units/steps actually run on the first deploy.
+if [ -z "${DEPLOY_REEXECED:-}" ]; then
+  export DEPLOY_REEXECED=1
+  exec bash "$0" "$@"
+fi
+
 echo "==> Installing Python deps"
 ./venv/bin/pip install -q -r requirements.txt
 
