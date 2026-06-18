@@ -32,6 +32,7 @@ from execution.regime_detector import RegimeDetector
 from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
+from execution.guards import has_acted, mark_acted
 from execution.weekly_journal import weekly_wrapup
 from execution.position_manager import PositionManager
 from execution.morning_briefing import MorningBriefing
@@ -652,7 +653,7 @@ def run(mode: str):
                 # re-scrapes the SAME recent disclosures every cycle, so without this it would
                 # re-buy a full allocation every ~60s until the trade scrolls off the page.
                 fp = f"{trade.politician}|{trade.ticker}|{trade.trade_type}|{trade.trade_date}"
-                if fp in state.get("whale_acted", []):
+                if has_acted(state, "whale_acted", fp):
                     continue
                 try:
                     account = alpaca.get_account()
@@ -689,8 +690,8 @@ def run(mode: str):
                     side = "buy" if trade.trade_type == "purchase" else "sell"
                     print(f"[WHALE] {side.upper()} {qty}x {trade.ticker} @ ~${price:.2f}  ({trade.politician})")
                     alpaca.submit_order(trade.ticker, qty, side)
-                    # Record so we never re-act on this disclosure (keep last 500).
-                    state["whale_acted"] = (state.get("whale_acted", []) + [fp])[-500:]
+                    # Record so we never re-act on this disclosure.
+                    mark_acted(state, "whale_acted", fp)
                     save_state(state)
                     log_insight(
                         source="whale_watch",

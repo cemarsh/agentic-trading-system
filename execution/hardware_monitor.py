@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import psutil
 from config import settings as cfg_module
+from execution.guards import Cooldown
 
 ALERT_COOLDOWN_SEC = 3600  # at most one CPU/temp alert per hour (per type) — no per-cycle spam
 
@@ -21,18 +22,13 @@ class HardwareMonitor:
         self._notifier = notifier
         self._cpu_samples: list = []
         self._temp_samples: list = []
-        self._last_alert: dict = {}  # alert_key -> monotonic time of last send (cooldown)
+        self._alert_cd = Cooldown(ALERT_COOLDOWN_SEC)  # per-key alert de-spam
 
     def _alert(self, key: str, msg: str) -> None:
         """Fire a critical alert at most once per ALERT_COOLDOWN_SEC per key, so a
         sustained breach doesn't email + Slack every loop cycle."""
-        if not self._notifier:
-            return
-        now = time.monotonic()
-        if now - self._last_alert.get(key, 0.0) < ALERT_COOLDOWN_SEC:
-            return
-        self._notifier.critical_alert(msg)
-        self._last_alert[key] = now
+        if self._notifier and self._alert_cd.ready(key):
+            self._notifier.critical_alert(msg)
 
     def sample(self) -> dict:
         cpu_pct = psutil.cpu_percent(interval=1)
