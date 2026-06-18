@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-05-25
-**Status**: Live (Paper) — Home Workstation (migrated from ThinkPad P70)
+**Last Updated**: 2026-06-18
+**Status**: Live (Paper) — VM 117 home-workstation. v2.0 aggressive-growth + IPO/derivatives signals; runaway bug class swept & guarded (`execution/guards.py`)
 
 ---
 
@@ -144,3 +144,23 @@ Trigger: system captured **nothing** on the SpaceX IPO (narrow inputs: whale + p
 - [ ] Promote vetted IPO watchlist names into the tradable wheel universe (manual; fresh IPOs lack options for weeks).
 - [ ] Optional: earnings calendar + general market-news scanner (further breadth).
 - [ ] Optional: surface IPO watchlist + rich-premium names in the morning briefing (currently journal only).
+
+## 2026-06-16 → 06-18 — Incident week: runaways, signal sources, guards
+
+### FJET ladder runaway (2026-06-16)
+- [x] **RCA + fix** (`e4eae32`) — ladder-buy fired every cycle (no rung cap / no stepped-drop), bought FJET 10sh/~60s for 2 days (4,570 sh, 26% equity). Fixed: `max_ladder_rungs=3` + each rung needs a further step down. Same class as halt-loop.
+- [x] **no_auto_manage** (`76100d4`) — protective logic ignores IPO starters (FJET/OPTX/AADX): no trailing stop / no ladder, so a speculative starter can't be stop-sold at a loss.
+- [x] **FJET breakeven exit** (`d9d651a`) — restore to 309-share starter ONLY at cost basis: resting GTC limit sell @ $5.71 + hourly `breakeven_monitor` systemd timer on VM 117 (re-arms order, alerts on completion). User: "don't get hit underwater."
+- [x] **deploy.sh self-update fix** (`dad6f6e`) — `git reset --hard` rewrote deploy.sh mid-run → new units skipped on first deploy; re-exec the pulled copy once.
+
+### Unbounded-loop sweep (2026-06-18)
+- [x] **Whale buy** (`bda7c88`) — was unbounded: re-bought a FULL allocation of the same congressional disclosures every cycle (no dedup). Fixed: fingerprint dedup in `state["whale_acted"]`.
+- [x] **Hardware alert** (`bda7c88`) — fired email+Slack every cycle on sustained breach. Fixed: 1h per-type cooldown.
+- [x] **Swept clean** — all scheduled tasks, policy_monitor, n8n_watchdog, hedge, wheel verified bounded.
+- [x] **`execution/guards.py`** (`8eafb08`) — shared util: `has_acted`/`mark_acted`/`acted_once` (idempotency) + `Cooldown` (rate-limit). Whale + hardware refactored to use it. Use for any new per-cycle order/alert/write.
+- [ ] (optional) migrate `policy_monitor._seen` + order-rejection cooldown to guards.py for consistency
+- [ ] (optional) hedge pending-order guard; wheel CSP-stage re-sync from live positions on restart
+
+### Signal sources (earlier this week, 2026-06-13)
+- [x] IPO calendar (SEC EDGAR), derivatives IV-rank + wheel IV-gate, wired into loop — SpaceX (SPCX) captured. See section above.
+- [ ] NotebookLM producer — `nlm` CLI on VM 117; **user owns Google auth + wiring**

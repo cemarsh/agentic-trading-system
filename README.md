@@ -235,6 +235,25 @@ See `directives/daily_journal.md` for the full SOP.
 
 ---
 
+## Signal Expansion & Safety (v2.0)
+
+Beyond the policy/whale/wheel core, the system now widens its senses and hardens its loops.
+
+### New signal sources
+- **IPO Calendar** (`execution/ipo_calendar.py`) — detects fresh IPOs from **SEC EDGAR** 424B4 filings (Nasdaq's API is server-blocked), filters out SPACs and established-company secondaries (via price-history length), checks Alpaca tradability + options, and writes a `trading_signals` row per new tradable name. *(First catch: the SpaceX IPO, `SPCX`.)*
+- **Derivatives signals** (`execution/derivatives_signals.py`) — classifies each name's premium environment from **IV rank** (rich/normal/cheap) and feeds the **wheel IV-gate**: CSPs are only sold when IV rank ≥ `wheel.min_iv_rank`. IV comes from the existing Alpaca token (indicative feed, market hours).
+- **Wheel-eligibility watch** — alerts (email + Slack) when a matrix ticker that lacked options gains them, so new IPO names auto-become wheel-able.
+
+### Active position management (`execution/position_manager.py`)
+50% max-profit close · **stop-loss on CSPs** · **down-and-out rolls priced off the real NBBO** (limit orders, never market) · open-order dedup guard.
+
+### Resilience layer — no silent death, no runaways
+The loop has been hardened against a recurring bug class ("repeat an action while a condition holds, with no cap"):
+- **`execution/guards.py`** — shared `has_acted`/`mark_acted`/`acted_once` (idempotency) + `Cooldown` (rate-limit). The standard guard for any per-cycle order/alert/write.
+- **Bounded ladder buys** (rung cap + stepped drops), **whale-buy dedup**, **alert cooldowns** — every per-cycle side-effect is now guarded.
+- **Halt auto-recovery** via live API probe (not a brittle failure count); **systemd start-limit + `OnFailure=` alert** so a stuck service goes loud, not silent; **heartbeat deadman timer** catches hangs.
+- **`no_auto_manage`** list — speculative starters are excluded from the trailing stop / ladder.
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
