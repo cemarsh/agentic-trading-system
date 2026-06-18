@@ -648,6 +648,12 @@ def run(mode: str):
                 if current_regime == "EXTREME_BEAR":
                     print(f"[WHALE] Skipping {trade.ticker} — EXTREME_BEAR regime")
                     continue
+                # Dedup: never act on a congressional disclosure twice. get_actionable_trades()
+                # re-scrapes the SAME recent disclosures every cycle, so without this it would
+                # re-buy a full allocation every ~60s until the trade scrolls off the page.
+                fp = f"{trade.politician}|{trade.ticker}|{trade.trade_type}|{trade.trade_date}"
+                if fp in state.get("whale_acted", []):
+                    continue
                 try:
                     account = alpaca.get_account()
                     equity = float(account.get("equity", 0))
@@ -683,6 +689,9 @@ def run(mode: str):
                     side = "buy" if trade.trade_type == "purchase" else "sell"
                     print(f"[WHALE] {side.upper()} {qty}x {trade.ticker} @ ~${price:.2f}  ({trade.politician})")
                     alpaca.submit_order(trade.ticker, qty, side)
+                    # Record so we never re-act on this disclosure (keep last 500).
+                    state["whale_acted"] = (state.get("whale_acted", []) + [fp])[-500:]
+                    save_state(state)
                     log_insight(
                         source="whale_watch",
                         category="decision",
