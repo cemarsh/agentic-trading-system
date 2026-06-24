@@ -164,3 +164,9 @@ Trigger: system captured **nothing** on the SpaceX IPO (narrow inputs: whale + p
 ### Signal sources (earlier this week, 2026-06-13)
 - [x] IPO calendar (SEC EDGAR), derivatives IV-rank + wheel IV-gate, wired into loop — SpaceX (SPCX) captured. See section above.
 - [ ] NotebookLM producer — `nlm` CLI on VM 117; **user owns Google auth + wiring**
+
+## 2026-06-24 — Claude journal insights broken (IPv6 egress)
+
+- [x] **RCA: daily Claude synthesis failed Jun 22-23** (`Connection error.`) — engine healthy; root cause was VM 117 advertising a global IPv6 address (ULA + Tailscale) with **no IPv6 default route**. glibc RFC 3484 default handed dual-stack hosts (`api.anthropic.com` has A+AAAA) their dead IPv6 addr first → anthropic SDK/httpx intermittently raised `APIConnectionError`. curl survived via Happy Eyeballs; the SDK did not. Journal still emailed via template fallback (Claude analysis missing).
+- [x] **Fix applied on VM** — uncommented `precedence ::ffff:0:0/96 100` in `/etc/gai.conf` → `getaddrinfo` now returns IPv4 first. Verified: raw SDK calls + real `_synthesize_with_claude()` both green. No restart needed.
+- [x] **Made durable** (`fe63062`) — idempotent gai.conf step added to `deploy/deploy.sh` so a VM rebuild re-applies it. Fixes the whole class (Anthropic, Alpaca, Resend, Slack, SEC EDGAR all stop trying dead IPv6 first).
