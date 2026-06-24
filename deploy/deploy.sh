@@ -38,6 +38,23 @@ fi
 echo "==> Installing Python deps"
 ./venv/bin/pip install -q -r requirements.txt
 
+# VM 117 advertises a global IPv6 address (ULA + Tailscale) but has NO IPv6
+# default route. glibc's default RFC 3484 ordering therefore hands dual-stack
+# hosts (api.anthropic.com, Alpaca, Resend, Slack, SEC EDGAR) their dead IPv6
+# address first, causing intermittent "Connection error" (notably the daily
+# Claude journal synthesis). Force IPv4 precedence in gai.conf. Idempotent;
+# host-local so it must be re-applied on every rebuild.
+echo "==> Ensuring IPv4-first DNS resolution (/etc/gai.conf)"
+if grep -qE '^[[:space:]]*precedence ::ffff:0:0/96[[:space:]]+100' /etc/gai.conf 2>/dev/null; then
+  echo "    gai.conf: IPv4 precedence already set"
+elif grep -qE '^#precedence ::ffff:0:0/96[[:space:]]+100' /etc/gai.conf 2>/dev/null; then
+  sudo sed -i 's|^#precedence ::ffff:0:0/96  100|precedence ::ffff:0:0/96  100|' /etc/gai.conf
+  echo "    gai.conf: uncommented IPv4 precedence line"
+else
+  echo 'precedence ::ffff:0:0/96  100' | sudo tee -a /etc/gai.conf >/dev/null
+  echo "    gai.conf: appended IPv4 precedence line"
+fi
+
 echo "==> Installing systemd units"
 for unit in trading.service trading-alert.service trading-heartbeat.service trading-heartbeat.timer \
             breakeven-monitor.service breakeven-monitor.timer; do
