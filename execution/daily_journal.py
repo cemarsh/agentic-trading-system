@@ -109,24 +109,27 @@ def read_insights(target_date: date) -> list:
 
 
 def read_policy_cache_for_day(target_date: date) -> list:
-    if not POLICY_CACHE_PATH.exists():
-        return []
-    try:
-        with open(POLICY_CACHE_PATH, encoding="utf-8") as f:
-            cache = json.load(f)
-    except Exception:
-        return []
-    # Cache shape varies; best-effort filter by date prefix if entries carry a ts/date
-    day_str = target_date.isoformat()
-    if isinstance(cache, dict):
-        return [
-            {"key": k, **(v if isinstance(v, dict) else {"value": v})}
-            for k, v in cache.items()
-            if isinstance(v, dict) and day_str in json.dumps(v, default=str)
-        ]
-    if isinstance(cache, list):
-        return [item for item in cache if day_str in json.dumps(item, default=str)]
-    return []
+    """
+    Return human-readable policy-signal headlines logged on target_date.
+
+    Policy content is logged by policy_monitor as insights with source='policy'
+    (category 'signal'), e.g. "PolicySignal(source='Federal Register EOs',
+    headline='...')". logs/policy_signal_cache.json is ONLY a dedup fingerprint
+    set (a flat list of hashes with no content or dates) — reading it here always
+    returned [] for a list and leaked opaque hashes for a dict, so the wrap-up's
+    policy context was permanently empty. We read the real headlines from the
+    day's insight log instead.
+    """
+    out = []
+    for it in read_insights(target_date):
+        text = (it.get("insight") or "").strip()
+        if not text:
+            continue
+        if it.get("source") == "policy" or (it.get("category") or "").lower() == "signal" \
+                or text.startswith("PolicySignal"):
+            if text not in out:
+                out.append(text[:220])
+    return out
 
 
 def query_db_for_day(target_date: date, settings) -> dict:
@@ -230,8 +233,8 @@ PRE_TRADE_ANALYSES_TODAY ({len(db_data.get('analyses', []))} rows from strategy_
 POST_TRADE_LESSONS_TODAY ({len(db_data.get('lessons', []))} rows from strategy_lessons):
 {_compact(db_data.get('lessons', []))}
 
-POLICY_SIGNALS_TODAY ({len(policy_today)} entries):
-{_compact(policy_today)}
+POLICY_SIGNALS_TODAY ({len(policy_today)} headlines):
+{chr(10).join(f"- {h}" for h in policy_today) if policy_today else "(none)"}
 """
 
 
@@ -292,12 +295,12 @@ def _template_fallback(
 
     lines += ["", "## Signals Observed"]
     whale = [i for i in insights if i.get("source") == "whale_watch"]
-    policy_ins = [i for i in insights if i.get("source") == "policy"] + policy_today
+    policy_ins = policy_today  # already cleaned headline strings from the insight log
     research = [i for i in insights if i.get("source") == "notebooklm"]
     if policy_ins:
         lines.append(f"- Policy: {len(policy_ins)} signal(s)")
         for p in policy_ins[:10]:
-            lines.append(f"  - {p.get('insight') or p.get('key') or str(p)[:120]}")
+            lines.append(f"  - {p}")
     if whale:
         lines.append(f"- Whale: {len(whale)} signal(s)")
         for w in whale[:10]:
