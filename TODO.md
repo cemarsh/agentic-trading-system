@@ -185,7 +185,7 @@ signal modules propose, only a risk engine should size." All five layers impleme
 - [x] 42/42 tests green (new: test_risk_gate, test_position_ledger, test_wheel_gates; fixed stale mock in test_protective_logic)
 - [x] **Deployed to VM 117** (2026-07-06, HEAD `447109e`) — service active; `db_logger.py --init` ran (proposed_config_changes live on dev-postgres); VM-local MEM.md learnings + 3 weeks of daily journals rescued from deploy autostash and committed (`caee768`, `f76cec2`)
 - [x] **Splunk HEC wired** (2026-07-06) — `SPLUNK_HEC_URL=http://10.1.50.116:8088` + runbook token (95914a91) + `SPLUNK_HEC_INDEX=application` in both .env files; verified end-to-end: heartbeat events from 10.1.50.117 searchable in `index=application sourcetype="trading:heartbeat"`
-- [ ] **Get a free Finnhub key** (finnhub.io) and add `FINNHUB_API_KEY` to WSL + workstation `.env` (earnings gate is fail-open until then)
+- [x] **Finnhub key wired** (2026-07-07) — `FINNHUB_API_KEY` in both .env files, service restarted; earnings gate is now HARD-armed. First lookup immediately flagged: **CCJ earnings 2026-07-31 = the expiry date of both open CCJ puts** (the exact collision class the gate exists for; positions predate it). PM behavior: at 21 DTE any roll candidate also spans 7/31 earnings → all skipped → position CLOSES instead of rolling. That de-risk-before-earnings outcome is correct.
 - [ ] Optional: Splunk scheduled search alerting when `trading:heartbeat` events stop arriving during market hours (independent of the VM being alive)
 - [ ] Watch VM 117 DNS: two transient `github.com` resolution failures within 10 min during deploy (resolver 1.1.1.1 via systemd-resolved). Loop tolerates via network_failures counter, but if blips recur consider a fallback nameserver
 - [ ] Whale Watch returned nothing recently — decide: wire to a real API (Unusual Whales) or delete the module (attribution report will make the call data-driven)
@@ -200,5 +200,5 @@ signal modules propose, only a risk engine should size." All five layers impleme
   3. (`3da5729`) snapshot fetch `limit=10` sampled only deep-ITM calls (sorted by symbol = ascending strike) which carry **no greeks** on the indicative feed → RTX had 0 usable contracts; `limit=100` → ~50. This was why names were "unavailable" even during RTH.
 - [x] **Verified on VM during RTH**: 22/23 tickers snapshotted (OPTX has no options). Usable IV rank now: CVX, LDOS, SHLD, AADX; FJET at 13; rest 1–9 snapshots (~2–3 weeks to arm at 1/day)
 - [x] Positions at check: FJET −$4.7k (breakeven GTC $5.71 resting), CCJ $98p −116% of premium (stop at −250%), CCJ $90p −87%, ALB $125p −25%, XOM $130p +25% (tracking to 50% close). Day P&L −$1,505.
-- [ ] Watch CCJ $98 put — halfway to its −250% stop; PM will BTC automatically if it gets there
+- [ ] Watch CCJ $98 put — halfway to its −250% stop; PM will BTC automatically if it gets there. Both CCJ puts expire ON earnings day (7/31); at 21 DTE (~Jul 10) the PM will close them rather than roll (all roll expiries span the earnings date)
 - [ ] CapitolTrades scraper now rate-limited (429) — strengthens the "wire Whale Watch to a real API or delete it" decision
