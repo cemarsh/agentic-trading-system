@@ -1,9 +1,13 @@
 """
 IV Tracker — Accumulates daily IV snapshots per ticker and computes IVR / IVP.
 
-Runs once per day (pre-market) to snapshot current IV for each ticker in the
-wheel + derivatives universe. After 30+ days of history, IVR and IVP become
-accurate enough to use as strategy gates.
+Runs once per day DURING MARKET HOURS (~10 AM ET) to snapshot current IV for
+each ticker in the wheel + derivatives universe. The window matters: Alpaca's
+indicative options feed is RTH-only, so a pre-market snapshot returns
+"unavailable" for most names and silently stores nothing (the cause of the
+sparse-history period Jun-Jul 2026). After MIN_HISTORY_DAYS of history, IVR
+and IVP are usable as strategy gates; accuracy keeps improving toward a full
+52-week window.
 
 IVR (IV Rank)       = (current_IV - 52wk_low) / (52wk_high - 52wk_low)
 IVP (IV Percentile) = % of trading days in past year where IV < today's IV
@@ -30,6 +34,11 @@ from execution.daily_journal import log_insight
 
 TRADIER_BASE = "https://api.tradier.com/v1"
 ALPACA_DATA_BASE = "https://data.alpaca.markets"
+
+# Minimum snapshots before IVR/IVP are considered usable. 15 ≈ three weeks of
+# trading days — coarse but workable while history builds; the alternative (30)
+# left the hard IV gate blocking every ticker for weeks on end.
+MIN_HISTORY_DAYS = 15
 
 # IV regime thresholds (used by strategy selector)
 IVR_HIGH = 50      # ≥ this → sell premium aggressively
@@ -234,7 +243,7 @@ def get_iv_rank(ticker: str, db_url: str) -> dict:
         result["current_iv"] = round(current_iv, 6)
         result["history_days"] = len(ivs)
 
-        if len(ivs) < 30:
+        if len(ivs) < MIN_HISTORY_DAYS:
             result["regime"] = "INSUFFICIENT_DATA"
             return result
 

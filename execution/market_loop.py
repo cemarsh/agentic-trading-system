@@ -361,9 +361,13 @@ def run_scheduled_tasks(
         except Exception as we:
             print(f"[WEEKLY] Wrap-up error: {we}")
 
-    # --- IV snapshot (Mon–Fri, 8:30–8:59 AM ET, once per day) ---
+    # --- IV snapshot (Mon–Fri, 10:00–10:59 AM ET, once per day) ---
+    # Must run DURING market hours: Alpaca's indicative options feed is RTH-only,
+    # so the old 8:30 pre-market window returned "unavailable" for most tickers
+    # and the IV history stayed too sparse for the wheel's hard IV gate.
     is_weekday = now_et.weekday() < 5
-    is_iv_window = now_et.hour == 8 and now_et.minute >= 30
+    is_premarket_window = now_et.hour == 8 and now_et.minute >= 30
+    is_iv_window = now_et.hour == 10
     iv_due = is_weekday and is_iv_window and state.get("last_iv_snapshot") != today_et
     if iv_due:
         try:
@@ -376,7 +380,7 @@ def run_scheduled_tasks(
             print(f"[IV] Snapshot error: {ive}")
 
     # --- IPO scan (Mon–Fri, 8:30–8:59 AM ET, once/day) — broadens the universe ---
-    ipo_due = is_weekday and is_iv_window and state.get("last_ipo_scan") != today_et
+    ipo_due = is_weekday and is_premarket_window and state.get("last_ipo_scan") != today_et
     if ipo_due:
         try:
             from execution.ipo_calendar import IPOCalendar
@@ -390,7 +394,11 @@ def run_scheduled_tasks(
             print(f"[IPO] Scan error: {ipe}")
 
     # --- Derivatives (IV-rank) scan — runs after the IV snapshot so history is fresh ---
-    deriv_due = is_weekday and is_iv_window and state.get("last_derivatives_scan") != today_et
+    deriv_due = (
+        is_weekday and is_iv_window
+        and state.get("last_iv_snapshot") == today_et  # only after today's snapshot landed
+        and state.get("last_derivatives_scan") != today_et
+    )
     if deriv_due:
         try:
             from execution.derivatives_signals import DerivativesSignals
@@ -401,7 +409,8 @@ def run_scheduled_tasks(
             print(f"[DERIV] Scan error: {dse}")
 
     # --- Wheel-eligibility watch — alert when a matrix ticker gains options ---
-    elig_due = is_weekday and is_iv_window and state.get("last_eligibility_check") != today_et
+    # Contract listings (unlike quotes) are available pre-market, so this stays early.
+    elig_due = is_weekday and is_premarket_window and state.get("last_eligibility_check") != today_et
     if elig_due:
         try:
             check_wheel_eligibility(cfg, alpaca, notifier, state)
