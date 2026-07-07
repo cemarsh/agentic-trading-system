@@ -52,10 +52,14 @@ def _get_iv_from_alpaca(ticker: str, headers: dict) -> Optional[float]:
     """Fetch ATM IV from Alpaca options snapshot for the nearest expiry."""
     import requests
     try:
+        # limit must be generous: contracts come back sorted by symbol (nearest
+        # expiry, ascending strike), so a small limit returns only deep-ITM calls,
+        # which carry no greeks/IV on the indicative feed. limit=10 yielded ZERO
+        # usable contracts for RTX; limit=100 yields ~50.
         resp = requests.get(
             f"{ALPACA_DATA_BASE}/v1beta1/options/snapshots/{ticker}",
             headers=headers,
-            params={"feed": "indicative", "limit": 10, "type": "call"},
+            params={"feed": "indicative", "limit": 100, "type": "call"},
             timeout=20,
         )
         resp.raise_for_status()
