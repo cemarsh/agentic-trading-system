@@ -183,8 +183,10 @@ signal modules propose, only a risk engine should size." All five layers impleme
 - [x] **Layer 5 — learning loop** — `execution/attribution.py` (per-module P&L + profit factor, conviction-bucket calibration) + `proposed_config_changes` table with `execution/config_proposals.py` CLI (propose/list/approve/reject/applied); both surfaced in the Friday weekly wrap-up.
 - [x] **Live-money gates in code** (`execution/live_readiness.py`) — `--mode live` refuses to start unless: ≥60d clean-alert streak, PF ≥1.3, max DD ≤8% over 90d, hard gates in config. First run: **NOT READY** (PF 0.44, DD 11.2%, streak 0d) — honest baseline.
 - [x] 42/42 tests green (new: test_risk_gate, test_position_ledger, test_wheel_gates; fixed stale mock in test_protective_logic)
-- [ ] **Deploy to VM 117** (`bash deploy/deploy.sh`) + run `db_logger.py --init` for the `proposed_config_changes` table + restart service
-- [ ] **Get a free Finnhub key** and add `FINNHUB_API_KEY` to WSL + workstation `.env` (earnings gate is fail-open until then)
-- [ ] Optional: `SPLUNK_HEC_URL`/`SPLUNK_HEC_TOKEN` in VM .env + a Splunk scheduled search alerting on missing `trading:heartbeat` events
+- [x] **Deployed to VM 117** (2026-07-06, HEAD `447109e`) — service active; `db_logger.py --init` ran (proposed_config_changes live on dev-postgres); VM-local MEM.md learnings + 3 weeks of daily journals rescued from deploy autostash and committed (`caee768`, `f76cec2`)
+- [x] **Splunk HEC wired** (2026-07-06) — `SPLUNK_HEC_URL=http://10.1.50.116:8088` + runbook token (95914a91) + `SPLUNK_HEC_INDEX=application` in both .env files; verified end-to-end: heartbeat events from 10.1.50.117 searchable in `index=application sourcetype="trading:heartbeat"`
+- [ ] **Get a free Finnhub key** (finnhub.io) and add `FINNHUB_API_KEY` to WSL + workstation `.env` (earnings gate is fail-open until then)
+- [ ] Optional: Splunk scheduled search alerting when `trading:heartbeat` events stop arriving during market hours (independent of the VM being alive)
+- [ ] Watch VM 117 DNS: two transient `github.com` resolution failures within 10 min during deploy (resolver 1.1.1.1 via systemd-resolved). Loop tolerates via network_failures counter, but if blips recur consider a fallback nameserver
 - [ ] Whale Watch returned nothing recently — decide: wire to a real API (Unusual Whales) or delete the module (attribution report will make the call data-driven)
 - [ ] Watch the first week of gate logs: expect CSP volume to drop sharply (hard IV gate + credit floors at VIX~16 — sitting in cash is correct behavior, not a bug)
