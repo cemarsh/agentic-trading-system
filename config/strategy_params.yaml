@@ -40,6 +40,8 @@ position_management:
   roll_weeks_out: 4             # How many weeks to roll to
   stop_loss_pct: 250            # Buy to close a short PUT once loss >= this % of premium received (caps blowups; 0 disables)
   roll_otm_buffer: 0.05         # Roll down-and-out: new put strike <= spot * (1 - this), and never above the old strike
+  min_roll_credit: 0.15         # $/share — a roll below this is a fee generator with delta risk, not a trade; close instead
+  min_hold_hours: 24            # Never ROLL a position opened less than this long ago (stop-loss / profit-close exempt)
 
 morning_briefing:
   enabled: true
@@ -96,7 +98,10 @@ wheel:
   min_premium_pct: 0.8           # Raised from 0.5 — elevated IV means we can demand more
   max_portfolio_pct_per_trade: 15.0  # Max % of equity per CSP (e.g. 15% of $100k = $15k/position)
   max_wheel_allocation_pct: 65       # Stop opening new CSPs above this % of equity in margin
-  min_iv_rank: 0.30                  # Derivatives gate: only sell CSPs when IV rank >= 30% (fail-open if no IV history)
+  min_iv_rank: 0.30                  # Derivatives gate: only sell CSPs when IV rank >= 30%
+  iv_gate_fail_open: false           # false = HARD gate: no IV history → no trade. Sitting in cash is allowed.
+  min_credit_per_share: 0.15         # Absolute floor on CSP entry credit ($/share, from real NBBO bid)
+  earnings_gate: true                # Never open a CSP whose expiry window contains an earnings date (needs FINNHUB_API_KEY; fail-open without it)
 
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
@@ -111,6 +116,38 @@ guardrails:
   verification_trades: 0         # 0 = fully autonomous, no manual confirm required
   api_retry_limit: 3             # Consecutive API failures before full halt
   paper_mode: true               # Set false only when ready for live trading
+
+# ============================================================
+# PRE-TRADE RISK GATE (2026-07-06) — the FJET lesson.
+# Every equity order and every new CSP passes through execution/risk_gate.py
+# BEFORE submission. A signal module can propose a trade; only the gate can
+# size it. These are hard rejects, not journal observations.
+# ============================================================
+risk:
+  max_position_pct: 5.0              # No equity order may push one ticker past this % of equity
+  quarantine_max_position_pct: 1.0   # Cap for quarantined (IPO/speculative) tickers
+  quarantined_tickers:               # Auto-includes protection.no_auto_manage (IPO starters)
+    - "FJET"
+    - "OPTX"
+    - "AADX"
+  sector_cap_pct: 20.0               # Max % of equity in one correlated sector (equity value + CSP collateral)
+  deadman_cancel_orders: true        # Stale heartbeat during market hours → watchdog cancels all open orders
+  sector_map:                        # Correlated-exposure buckets; unmapped tickers get only the position cap
+    defense_aerospace: ["SHLD", "RTX", "AVAV", "PLTR", "LDOS", "KTOS", "RKLB", "FJET", "OPTX", "AADX"]
+    energy_commodity:  ["XOM", "CVX", "GLD", "NUE", "CAT"]
+    nuclear_uranium:   ["CCJ", "CEG", "VST"]
+    critical_minerals: ["MP", "ALB"]
+    defensive:         ["ABT", "HD", "GEO"]
+
+# Live-money gates — checked in code (execution/live_readiness.py) before
+# --mode live will start. Defined now, while still on paper, so the bar
+# can't be lowered in the heat of the moment.
+live_gates:
+  min_days_since_critical_alert: 60  # 60 consecutive trading days with zero critical alerts
+  min_profit_factor: 1.3             # Over the paper history window
+  max_drawdown_pct: 8.0              # Max peak-to-trough equity drawdown in the window
+  history_window_days: 90            # ~3 months of paper history
+  initial_capital_fraction: 0.25     # Go live at 25% of capital first (reported, not enforced)
 
 notifications:
   alert_email: "[FILL_IN]"       # e.g. you@yourdomain.com

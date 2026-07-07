@@ -17,6 +17,8 @@ def _mock_settings(trailing=7.0, gap=3.0, ladder_drop=5.0, ladder_shares=10):
     cfg.protection.gap_tighten_pct = gap
     cfg.protection.ladder_drop_pct = ladder_drop
     cfg.protection.ladder_buy_shares = ladder_shares
+    cfg.protection.max_ladder_rungs = 3
+    cfg.protection.no_auto_manage = []
     return cfg
 
 

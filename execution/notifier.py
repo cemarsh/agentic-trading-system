@@ -17,6 +17,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import resend
 from config import settings as cfg_module
 
+# Some mail clients mis-decode non-ASCII in our plain-text reports (the corrupted
+# P&L lines / degree signs in the daily report). Normalize the usual suspects to
+# ASCII so the numbers are always readable — pretty typography is not worth an
+# unreadable P&L.
+_ASCII_MAP = str.maketrans({
+    "—": "--", "–": "-", "°": " deg ",
+    "“": '"', "”": '"', "‘": "'", "’": "'",
+    "→": "->", "≥": ">=", "≤": "<=", "±": "+/-",
+    " ": " ",  # non-breaking space
+})
+
+
+def _ascii_safe(text: str) -> str:
+    return str(text).translate(_ASCII_MAP).encode("ascii", "replace").decode("ascii")
+
+
+def _fmt_temp(temp_c) -> str:
+    """Render a temperature that may be None (no sensor on a VM)."""
+    return f"{temp_c:.1f} C" if temp_c is not None else "n/a (no sensor)"
+
 
 class Notifier:
     def __init__(self, settings=None):
@@ -28,12 +48,12 @@ class Notifier:
         params = {
             "from": "Trading System <noreply@cloudmagicgroup.com>",
             "to": [self.to],
-            "subject": subject,
+            "subject": _ascii_safe(subject),
         }
         if is_html:
             params["html"] = body
         else:
-            params["text"] = body
+            params["text"] = _ascii_safe(body)
         resend.Emails.send(params)
 
     def send_slack(self, text: str):
@@ -49,7 +69,18 @@ class Notifier:
             print(f"[SLACK] send failed: {e}")
 
     def critical_alert(self, message: str):
-        body = f"CRITICAL ALERT — {datetime.utcnow().isoformat()}Z\n\n{message}"
+        now = datetime.utcnow().isoformat()
+        # Stamp the critical-alert log FIRST — live_readiness gates "N days with
+        # zero critical alerts" off this file, so it must record even if delivery fails.
+        try:
+            log = Path("logs/critical_alerts.log")
+            log.parent.mkdir(parents=True, exist_ok=True)
+            first_line = message.strip().splitlines()[0][:200] if message.strip() else ""
+            with open(log, "a") as f:
+                f.write(f"{now}Z\t{first_line}\n")
+        except Exception:
+            pass
+        body = f"CRITICAL ALERT — {now}Z\n\n{message}"
         self.send(subject="[CRITICAL] Trading System Alert", body=body)
         self.send_slack(f":rotating_light: *CRITICAL* — {message[:500]}")
 
@@ -114,7 +145,7 @@ class Notifier:
             "",
             "--- Hardware ---",
             f"  CPU:  {cpu_pct:.1f}%",
-            f"  Temp: {temp_c:.1f}°C",
+            f"  Temp: {_fmt_temp(temp_c)}",
         ]
 
         self.send(
@@ -150,7 +181,7 @@ class Notifier:
             "",
             "--- Hardware ---",
             f"  Avg CPU:  {cpu_avg:.1f}%",
-            f"  Avg Temp: {temp_avg:.1f}°C",
+            f"  Avg Temp: {_fmt_temp(temp_avg)}",
             "",
             "--- Smart Money (Whale Watch) ---",
         ]

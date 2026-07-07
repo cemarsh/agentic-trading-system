@@ -13,6 +13,9 @@ logs/policy_signal_cache.json
 logs/heartbeat
 logs/heartbeat_alert.json
 logs/halt_pending_alert.json
+logs/critical_alerts.baseline
+logs/position_ledger.json
+logs/earnings_cache.json
 
 # Python
 __pycache__/

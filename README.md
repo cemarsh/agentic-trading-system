@@ -254,6 +254,62 @@ The loop has been hardened against a recurring bug class ("repeat an action whil
 - **Halt auto-recovery** via live API probe (not a brittle failure count); **systemd start-limit + `OnFailure=` alert** so a stuck service goes loud, not silent; **heartbeat deadman timer** catches hangs.
 - **`no_auto_manage`** list — speculative starters are excluded from the trailing stop / ladder.
 
+## Risk Engine & Learning Loop (v2.1)
+
+v2.0 made the system hard to kill; v2.1 makes it hard to hurt itself. Signal modules
+**propose** trades — only the risk engine **sizes** them.
+
+### Pre-trade risk gate (`execution/risk_gate.py`)
+Every equity order (whale, ladder) and every new CSP passes through hard gates measured
+off **live broker state**, not module-internal memory:
+- **Position cap** — no order pushes one ticker past `risk.max_position_pct` (5%) of equity.
+  *(This one check would have stopped ~80% of the FJET drawdown — a 29%-of-book position.)*
+- **IPO quarantine** — quarantined tickers (config list ∪ `no_auto_manage`) cap at 1% and are
+  banned from the premium-selling book entirely.
+- **Sector-correlation cap** — equity value + CSP collateral per correlated bucket
+  (`risk.sector_map`) ≤ `risk.sector_cap_pct` (20%). Energy + uranium + speculative aerospace
+  are three flavors of the same bet; the gate knows that.
+- Fails **closed**: unknown equity → no trade.
+
+### Selection gates — sell where it *should*, not where it *can*
+- **Hard IV gate** — `wheel.min_iv_rank` (30%) with `iv_gate_fail_open: false`: no IV history
+  means **no trade**. Sitting in cash is a permitted position.
+- **Credit floors** — CSP entry requires a real NBBO bid ≥ max($0.15/sh, `min_premium_pct` of
+  strike); rolls require ≥ `position_management.min_roll_credit` ($0.15/sh) or they close.
+  No more $0.01 rolls. All entries are **limit orders at the bid**.
+- **Earnings gate** (`execution/earnings_calendar.py`, Finnhub) — never open or roll into an
+  expiry window containing an earnings date.
+
+### One brain per position (`execution/position_ledger.py`)
+A crash-safe ledger records **owner, state (OPENED→MANAGED→CLOSING), opened_at** per symbol.
+The position manager may not roll a leg opened < `min_hold_hours` (24h) ago — the wheel and
+the PM can no longer fight over a five-minute-old position. Stop-loss and profit-close are
+exempt: risk exits are never time-gated.
+
+### Watchdog with authority (`execution/heartbeat_check.py`)
+A stale heartbeat during market hours now **cancels all open orders** (dead-man's switch,
+`risk.deadman_cancel_orders`) before alerting — an alert read 90 minutes later is not risk
+management. Every check also pushes a heartbeat event to **Splunk HEC** (optional
+`SPLUNK_HEC_URL`/`SPLUNK_HEC_TOKEN`) so alerting can run off a scheduled search that doesn't
+depend on this process being alive.
+
+### Learning loop — a diary becomes a curriculum
+- **Module attribution** (`execution/attribution.py`) — weekly per-module P&L + profit factor
+  in the Friday wrap-up. Net-negative over a quarter → candidate for shutdown. Modules earn
+  their keep.
+- **Conviction calibration** — win rate by conviction bucket; if 0.90-conviction trades win at
+  the 0.70 rate, the report says so and the score must not gate sizing.
+- **Config proposals** (`execution/config_proposals.py` + `proposed_config_changes` table) —
+  lessons become reviewable proposals listed in the weekly email; approve/reject via CLI;
+  apply through git + `deploy/deploy.sh`. The system proposes, you dispose.
+
+### Live-money gates — in code, not in vibes (`execution/live_readiness.py`)
+`--mode live` refuses to start unless: ≥ 60 days since the last critical alert, paper profit
+factor ≥ 1.3, max drawdown ≤ 8% over 90 days, and every hard gate present in config. Then go
+live at 25% of capital for a quarter. Run `python execution/live_readiness.py` anytime for the
+scorecard. Target is annualized % (15% is genuinely good), **never** dollars/day — reaching
+for an income target is how a book ends up in $98 puts and a $26k IPO position.
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)

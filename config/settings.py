@@ -73,7 +73,10 @@ class WheelConfig:
     min_premium_pct: float
     max_portfolio_pct_per_trade: float
     max_wheel_allocation_pct: float
-    min_iv_rank: float = 0.0  # only sell CSPs when IV rank >= this (0–1); 0 disables the gate
+    min_iv_rank: float = 0.0          # only sell CSPs when IV rank >= this (0–1); 0 disables the gate
+    iv_gate_fail_open: bool = False   # False = no IV history means NO trade (hard gate)
+    min_credit_per_share: float = 0.15  # absolute floor on CSP entry credit from the NBBO bid
+    earnings_gate: bool = True        # skip CSPs whose expiry window contains an earnings date
 
 
 @dataclass
@@ -108,6 +111,27 @@ class PositionManagementConfig:
     roll_weeks_out: int = 4
     stop_loss_pct: float = 250.0      # BTC a short PUT once its loss reaches this % of premium (0/None disables)
     roll_otm_buffer: float = 0.05     # roll down-and-out: new put strike <= spot * (1 - this)
+    min_roll_credit: float = 0.15     # $/share floor on roll net credit; below it, close instead
+    min_hold_hours: float = 24.0      # never ROLL a leg opened less than this long ago
+
+
+@dataclass
+class RiskConfig:
+    max_position_pct: float = 5.0
+    quarantine_max_position_pct: float = 1.0
+    quarantined_tickers: List[str] = field(default_factory=list)
+    sector_cap_pct: float = 20.0
+    deadman_cancel_orders: bool = True
+    sector_map: dict = field(default_factory=dict)
+
+
+@dataclass
+class LiveGatesConfig:
+    min_days_since_critical_alert: int = 60
+    min_profit_factor: float = 1.3
+    max_drawdown_pct: float = 8.0
+    history_window_days: int = 90
+    initial_capital_fraction: float = 0.25
 
 
 @dataclass
@@ -138,6 +162,8 @@ class Settings:
     hedge: HedgeConfig
     anthropic: AnthropicConfig
     position_management: PositionManagementConfig = None
+    risk: RiskConfig = None
+    live_gates: LiveGatesConfig = None
 
 
 def load() -> Settings:
@@ -189,5 +215,13 @@ def load() -> Settings:
         position_management=PositionManagementConfig(**{
             k: v for k, v in raw.get("position_management", {}).items()
             if k in PositionManagementConfig.__dataclass_fields__
+        }),
+        risk=RiskConfig(**{
+            k: v for k, v in (raw.get("risk") or {}).items()
+            if k in RiskConfig.__dataclass_fields__
+        }),
+        live_gates=LiveGatesConfig(**{
+            k: v for k, v in (raw.get("live_gates") or {}).items()
+            if k in LiveGatesConfig.__dataclass_fields__
         }),
     )

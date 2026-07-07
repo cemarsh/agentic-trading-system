@@ -34,10 +34,14 @@ class HardwareMonitor:
         cpu_pct = psutil.cpu_percent(interval=1)
         temp_c = self._read_temp()
         self._cpu_samples.append(cpu_pct)
-        self._temp_samples.append(temp_c)
+        if temp_c is not None:
+            self._temp_samples.append(temp_c)
         return {"cpu_pct": cpu_pct, "temp_c": temp_c}
 
-    def _read_temp(self) -> float:
+    def _read_temp(self):
+        """CPU temperature in Celsius, or None when no sensor is exposed (VMs).
+        None — not 0.0 — so reports show 'n/a' instead of a fake reading that
+        makes the rest of the telemetry look untrustworthy."""
         try:
             temps = psutil.sensors_temperatures()
             for key in ("coretemp", "k10temp", "acpitz", "cpu_thermal"):
@@ -45,11 +49,11 @@ class HardwareMonitor:
                     return temps[key][0].current
         except (AttributeError, NotImplementedError):
             pass
-        return 0.0
+        return None
 
     def averages(self) -> dict:
         cpu_avg = sum(self._cpu_samples) / len(self._cpu_samples) if self._cpu_samples else 0.0
-        temp_avg = sum(self._temp_samples) / len(self._temp_samples) if self._temp_samples else 0.0
+        temp_avg = sum(self._temp_samples) / len(self._temp_samples) if self._temp_samples else None
         return {"cpu_avg": cpu_avg, "temp_avg": temp_avg}
 
     def check_thresholds(self, metrics: dict) -> bool:
@@ -63,7 +67,7 @@ class HardwareMonitor:
             self._alert("cpu", msg)
             breached = True
 
-        if metrics["temp_c"] > hw.temp_threshold_c:
+        if metrics["temp_c"] is not None and metrics["temp_c"] > hw.temp_threshold_c:
             msg = f"CPU temp {metrics['temp_c']:.1f}°C exceeds threshold {hw.temp_threshold_c}°C"
             print(f"[WARN] {msg}")
             self._alert("temp", msg)

@@ -149,6 +149,24 @@ CREATE TABLE IF NOT EXISTS derivatives_positions (
 CREATE INDEX IF NOT EXISTS idx_deriv_status  ON derivatives_positions(status);
 CREATE INDEX IF NOT EXISTS idx_deriv_ticker  ON derivatives_positions(ticker);
 CREATE INDEX IF NOT EXISTS idx_deriv_account ON derivatives_positions(account);
+
+-- Feedback loop: journal lessons become PROPOSED config changes, reviewed weekly
+-- (approve/reject via execution/config_proposals.py), so the system doesn't wake
+-- up identical every day. A diary logs; a learning system compiles.
+CREATE TABLE IF NOT EXISTS proposed_config_changes (
+    id           SERIAL PRIMARY KEY,
+    proposed_at  TIMESTAMPTZ DEFAULT NOW(),
+    source       TEXT,                        -- 'journal', 'weekly_review', 'manual', module name
+    config_key   TEXT NOT NULL,               -- e.g. 'wheel.min_iv_rank'
+    current_value TEXT,
+    proposed_value TEXT NOT NULL,
+    rationale    TEXT NOT NULL,
+    status       TEXT DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','applied')),
+    reviewed_at  TIMESTAMPTZ,
+    review_note  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposed_config_changes(status);
 """
 
 

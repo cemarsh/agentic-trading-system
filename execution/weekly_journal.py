@@ -398,6 +398,22 @@ def weekly_wrapup(
     # Build MTD report (always deterministic)
     mtd_section = build_mtd_report(mtd, month_label)
 
+    # Module attribution + conviction calibration (deterministic)
+    try:
+        from execution.attribution import build_report as build_attribution
+        attribution_section = build_attribution(days=90, settings=cfg)
+    except Exception as e:
+        print(f"[WEEKLY] attribution failed: {e}")
+        attribution_section = ""
+
+    # Pending config-change proposals for the weekly review
+    try:
+        from execution.config_proposals import build_pending_section
+        proposals_section = build_pending_section(settings=cfg)
+    except Exception as e:
+        print(f"[WEEKLY] proposals section failed: {e}")
+        proposals_section = ""
+
     # Assemble full document
     equity = 0.0
     mode = "paper" if cfg.guardrails.paper_mode else "live"
@@ -422,7 +438,10 @@ def weekly_wrapup(
         f"\n\n---\n"
         f"*Generated {datetime.now(timezone.utc).isoformat()} by execution/weekly_journal.py*\n"
     )
-    full = header + body + divider + mtd_section + footer
+    extras = "".join(
+        divider + section for section in (attribution_section, proposals_section) if section
+    )
+    full = header + body + divider + mtd_section + extras + footer
 
     WEEKLY_DIR.mkdir(parents=True, exist_ok=True)
     path = WEEKLY_DIR / f"{week_label}.md"

@@ -96,12 +96,6 @@ def _compute_current_mark(position: dict) -> Optional[float]:
 # PositionManager
 # -----------------------------------------------------------------------
 
-# Minimum roll credit to accept — anything positive (even $0.01/contract) is fine;
-# if we can't collect any credit we close instead of rolling for a debit.
-MIN_ROLL_NET_CREDIT = 0.0
-
-PROFIT_CLOSE_THRESHOLD = 0.50   # 50% of max profit
-DTE_ROLL_THRESHOLD = 21          # calendar days
 ROLL_WEEKS_MIN = 4
 ROLL_WEEKS_MAX = 6
 LIMIT_SLIPPAGE = 0.03            # marketable-limit buffer over/under the NBBO so orders fill
@@ -112,15 +106,23 @@ class PositionManager:
     Manages open options positions — applies 50% profit close and 21-DTE roll rules.
     """
 
-    def __init__(self, settings=None, alpaca_client=None, db_logger=None):
+    def __init__(self, settings=None, alpaca_client=None, db_logger=None, ledger=None):
         self.cfg = settings or cfg_module.load()
         self._alpaca = alpaca_client
         self._db = db_logger
+        self._ledger = ledger
         pm = getattr(self.cfg, "position_management", None)
         # stop_loss as a fraction of premium (250% -> 2.5); 0/None disables the stop.
         slp = getattr(pm, "stop_loss_pct", None) if pm else None
         self.stop_loss_frac = (slp / 100.0) if slp else None
         self.roll_otm_buffer = getattr(pm, "roll_otm_buffer", 0.05) if pm else 0.05
+        self.profit_close_frac = (getattr(pm, "close_profit_pct", 50.0) if pm else 50.0) / 100.0
+        self.roll_dte_threshold = getattr(pm, "roll_dte_threshold", 21) if pm else 21
+        # A roll below this $/share credit is churn (fees + delta risk for pennies) —
+        # close instead. The old constant here was 0.0, which is how the XOM
+        # $0.01/share rolls happened.
+        self.min_roll_credit = getattr(pm, "min_roll_credit", 0.15) if pm else 0.15
+        self.min_hold_hours = getattr(pm, "min_hold_hours", 24.0) if pm else 24.0
 
     # -------------------------------------------------------------------
     # Public API
@@ -188,7 +190,7 @@ class PositionManager:
                 (avg_entry - current_mark) / avg_entry
                 if avg_entry > 0 else 0.0
             )
-            at_50_pct = profit_pct >= PROFIT_CLOSE_THRESHOLD
+            at_50_pct = profit_pct >= self.profit_close_frac
 
             print(
                 f"[PM] {symbol}  DTE={dte}  entry={avg_entry:.4f}  "
@@ -219,14 +221,23 @@ class PositionManager:
                     result["closed"].append(symbol)
                 continue
 
-            # --- Rule 3: 21-DTE roll ---
-            if dte <= DTE_ROLL_THRESHOLD:
+            # --- Rule 3: DTE roll (config roll_dte_threshold) ---
+            if dte <= self.roll_dte_threshold:
+                # Ownership/min-hold gate: never roll a leg another module JUST
+                # opened (the XOM open→roll-in-5-minutes collision). Stop-loss and
+                # profit-close above deliberately do NOT consult this — risk exits
+                # are never time-gated.
+                if self._ledger:
+                    can, why = self._ledger.can_roll(symbol, self.min_hold_hours)
+                    if not can:
+                        print(f"[PM] {symbol} — roll deferred: {why}")
+                        continue
                 rolled = self._roll_position(pos, parsed, current_mark, profit_pct)
                 if rolled:
                     result["rolled"].append(symbol)
                 else:
-                    # Could not collect net credit — close at whatever mark
-                    closed = self._close_position(pos, parsed, current_mark, profit_pct, reason="21 DTE, no roll credit available")
+                    # Could not collect a meaningful net credit — close at whatever mark
+                    closed = self._close_position(pos, parsed, current_mark, profit_pct, reason=f"{self.roll_dte_threshold} DTE, no roll credit available")
                     if closed:
                         result["closed"].append(symbol)
 
@@ -278,6 +289,9 @@ class PositionManager:
                 metadata={"symbol": symbol, "reason": reason},
             )
             return False
+
+        if self._ledger:
+            self._ledger.touch(symbol, owner="position_manager", state="CLOSING")
 
         log_insight(
             source="system",
@@ -381,6 +395,16 @@ class PositionManager:
             days_to_friday = (4 - target_date.weekday()) % 7
             candidate_friday = target_date + timedelta(days=days_to_friday)
             candidate_str = candidate_friday.isoformat()
+            # Never roll INTO an expiry window that contains an earnings date —
+            # that converts management into an event bet. Fail-open when the
+            # calendar is unavailable.
+            try:
+                from execution.earnings_calendar import has_earnings_before
+                if has_earnings_before(ticker, candidate_str):
+                    print(f"[PM] {ticker} — earnings before {candidate_str}, trying a different expiry")
+                    continue
+            except Exception:
+                pass
             try:
                 contracts = self._alpaca.get_options_contracts(ticker, candidate_str)
             except Exception as e:
@@ -420,11 +444,11 @@ class PositionManager:
         new_bid = new_q["bid"] if new_q and new_q.get("bid") else 0.0
         net_credit = new_bid - current_ask
 
-        if net_credit <= MIN_ROLL_NET_CREDIT:
+        if net_credit < self.min_roll_credit:
             print(
                 f"[PM] Roll {symbol} → {new_symbol}: real net credit "
                 f"${net_credit:.2f}/sh (new_bid {new_bid:.2f} - cur_ask {current_ask:.2f}) "
-                f"<= 0 — closing instead"
+                f"< ${self.min_roll_credit:.2f}/sh floor — closing instead"
             )
             return False
 
@@ -472,6 +496,10 @@ class PositionManager:
             )
             # Old leg is already closed; log as close and surface the error
             return False
+
+        if self._ledger:
+            self._ledger.touch(symbol, owner="position_manager", state="CLOSING")
+            self._ledger.record_open(new_symbol, owner="position_manager")
 
         realized_pnl_btc = (avg_entry - current_mark) * qty * 100
         log_insight(

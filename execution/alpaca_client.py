@@ -150,9 +150,30 @@ class AlpacaClient:
         """Returns market clock: is_open, next_open, next_close (ISO strings)."""
         return self._get("/v2/clock")
 
+    def get_portfolio_history(self, period: str = "3M", timeframe: str = "1D") -> dict:
+        """Account equity/P&L history — used by live_readiness to compute the
+        paper profit factor and max drawdown gates."""
+        return self._get(
+            "/v2/account/portfolio/history",
+            params={"period": period, "timeframe": timeframe},
+        )
+
     def get_open_orders(self) -> list:
         """All currently open/working orders (used to avoid double-submitting)."""
         return self._get("/v2/orders", params={"status": "open", "limit": 500})
+
+    def cancel_all_orders(self) -> list:
+        """Cancel every open order. Used by the watchdog dead-man's switch — a hung
+        loop must not leave resting orders unmanaged in a moving market. Returns
+        Alpaca's per-order cancellation status list."""
+        resp = self._session.delete(
+            f"{self.base_url}/v2/orders", headers=self._headers, timeout=20
+        )
+        resp.raise_for_status()
+        try:
+            return resp.json()
+        except Exception:
+            return []
 
     def get_option_quote(self, symbol: str) -> Optional[dict]:
         """Latest NBBO for an option contract. Returns {'bid','ask','mid'} or None.

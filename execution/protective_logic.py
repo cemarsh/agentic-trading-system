@@ -29,10 +29,11 @@ class EquityPosition:
 
 
 class ProtectiveLogic:
-    def __init__(self, settings=None, alpaca_client=None, db_logger=None):
+    def __init__(self, settings=None, alpaca_client=None, db_logger=None, risk_gate=None):
         self.cfg = settings or cfg_module.load()
         self._alpaca = alpaca_client
         self._db = db_logger
+        self._risk_gate = risk_gate
         self._positions: Dict[str, EquityPosition] = {}
         self._ladder_counts: Dict[str, int] = {}
         self._ladder_last_price: Dict[str, float] = {}
@@ -113,12 +114,26 @@ class ProtectiveLogic:
         if not self._alpaca:
             return None
         prot = self.cfg.protection
+        # Hard pre-trade gate — averaging down must respect the same position/sector
+        # caps as any other buy (the FJET runaway was exactly this path).
+        if self._risk_gate and current_price:
+            ok, reason = self._risk_gate.check_equity_order(
+                ticker, prot.ladder_buy_shares * current_price
+            )
+            if not ok:
+                print(f"[RISK] Ladder buy blocked — {reason}")
+                log_insight(source="risk_gate", category="decision",
+                            insight=f"BLOCKED ladder buy: {reason}",
+                            metadata={"ticker": ticker, "qty": prot.ladder_buy_shares})
+                return None
         order = self._alpaca.submit_order(
             ticker=ticker,
             qty=prot.ladder_buy_shares,
             side="buy",
             order_type="market",
         )
+        if self._risk_gate and current_price:
+            self._risk_gate.record_fill(ticker, prot.ladder_buy_shares * current_price)
         self._ladder_counts[ticker] = self._ladder_counts.get(ticker, 0) + 1
         if current_price is not None:
             self._ladder_last_price[ticker] = current_price

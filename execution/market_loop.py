@@ -36,6 +36,8 @@ from execution.guards import has_acted, mark_acted
 from execution.weekly_journal import weekly_wrapup
 from execution.position_manager import PositionManager
 from execution.morning_briefing import MorningBriefing
+from execution.risk_gate import RiskGate
+from execution.position_ledger import PositionLedger
 
 STATE_PATH = Path("logs/agent_state.json")
 HALT_ALERT_PATH = Path("logs/halt_pending_alert.json")
@@ -447,7 +449,8 @@ def verify_all(cfg) -> bool:
         print("[SKIP] Resend — RESEND_API_KEY not set (email disabled)")
     hw = HardwareMonitor(settings=cfg)
     metrics = hw.sample()
-    print(f"[OK] Hardware — CPU: {metrics['cpu_pct']:.1f}%, Temp: {metrics['temp_c']:.1f}°C")
+    temp_str = f"{metrics['temp_c']:.1f}C" if metrics["temp_c"] is not None else "n/a (no sensor)"
+    print(f"[OK] Hardware — CPU: {metrics['cpu_pct']:.1f}%, Temp: {temp_str}")
     mode = "PAPER" if cfg.guardrails.paper_mode else "LIVE"
     if ok:
         print(f"\n[READY] All systems go. Mode: {mode}")
@@ -527,6 +530,14 @@ def run(mode: str):
         print("[WARN] strategy_params.yaml has paper_mode: true. Set to false to enable live trading.")
         sys.exit(1)
 
+    if mode == "live":
+        # Coded live-money gates (clean-alert streak, paper profit factor,
+        # drawdown, hard gates in config). Not a config flag — code.
+        from execution.live_readiness import check_ready
+        if not check_ready(settings=cfg):
+            print("[GATE] Live-readiness gates failed — refusing to start in live mode.")
+            sys.exit(1)
+
     alpaca = AlpacaClient(settings=cfg)
 
     # Optional services — degrade gracefully when not configured
@@ -551,10 +562,15 @@ def run(mode: str):
         print("[INFO] No RESEND_API_KEY — email alerts disabled")
 
     hw = HardwareMonitor(settings=cfg, notifier=notifier)
+    risk_gate = RiskGate(settings=cfg)
+    ledger = PositionLedger()
     whale = WhaleWatcher(settings=cfg, alpaca_client=alpaca)
-    wheel = WheelStrategy(settings=cfg, alpaca_client=alpaca, db_logger=db)
-    position_mgr = PositionManager(settings=cfg, alpaca_client=alpaca, db_logger=db)
-    protection = ProtectiveLogic(settings=cfg, alpaca_client=alpaca, db_logger=db)
+    wheel = WheelStrategy(settings=cfg, alpaca_client=alpaca, db_logger=db,
+                          risk_gate=risk_gate, ledger=ledger)
+    position_mgr = PositionManager(settings=cfg, alpaca_client=alpaca, db_logger=db,
+                                   ledger=ledger)
+    protection = ProtectiveLogic(settings=cfg, alpaca_client=alpaca, db_logger=db,
+                                 risk_gate=risk_gate)
     policy = PolicyMonitor(settings=cfg, notifier=notifier, db=db)
     regime = RegimeDetector(settings=cfg, alpaca_client=alpaca)
     hedge = InverseETFHedge(settings=cfg, alpaca_client=alpaca, db_logger=db)
@@ -616,6 +632,12 @@ def run(mode: str):
             }
             protection.sync_positions(positions)
 
+            # --- Risk gate sync (position/sector caps measured off LIVE broker state) ---
+            account = alpaca.get_account()
+            equity = float(account.get("equity", 0) or 0)
+            risk_gate.refresh(positions, equity)
+            ledger.sync(positions)
+
             # --- Protective Logic ---
             stop_tickers = protection.check_stops(current_prices)
             for ticker in stop_tickers:
@@ -656,8 +678,6 @@ def run(mode: str):
                 if has_acted(state, "whale_acted", fp):
                     continue
                 try:
-                    account = alpaca.get_account()
-                    equity = float(account.get("equity", 0))
                     alloc_pct = cfg.whale_watch.max_portfolio_pct_per_trade * regime.allocation_multiplier()
                     max_alloc = equity * alloc_pct / 100
                     bars = alpaca.get_bars(trade.ticker, "1Min", 1)
@@ -667,6 +687,18 @@ def run(mode: str):
                     qty = int(max_alloc // price)
                     if qty < 1:
                         continue
+
+                    # Hard pre-trade gate: position cap / quarantine / sector cap.
+                    if trade.trade_type == "purchase":
+                        ok, reason = risk_gate.check_equity_order(trade.ticker, qty * price)
+                        if not ok:
+                            print(f"[RISK] Whale buy blocked — {reason}")
+                            log_insight(source="risk_gate", category="decision",
+                                        insight=f"BLOCKED whale buy: {reason}",
+                                        metadata={"ticker": trade.ticker, "qty": qty, "price": price})
+                            mark_acted(state, "whale_acted", fp)  # blocked = decided; don't retry every cycle
+                            save_state(state)
+                            continue
 
                     # Manual confirm check
                     order_value = qty * price
@@ -690,6 +722,8 @@ def run(mode: str):
                     side = "buy" if trade.trade_type == "purchase" else "sell"
                     print(f"[WHALE] {side.upper()} {qty}x {trade.ticker} @ ~${price:.2f}  ({trade.politician})")
                     alpaca.submit_order(trade.ticker, qty, side)
+                    if side == "buy":
+                        risk_gate.record_fill(trade.ticker, qty * price)
                     # Record so we never re-act on this disclosure.
                     mark_acted(state, "whale_acted", fp)
                     save_state(state)
@@ -773,7 +807,7 @@ def run(mode: str):
                 print(f"[PM] Position manager error: {pme}")
 
             # --- Inverse ETF Hedge ---
-            hedge.run(regime=current_regime, positions=positions, equity=float(alpaca.get_account().get("equity", 0)))
+            hedge.run(regime=current_regime, positions=positions, equity=equity)
 
             # --- Status Check (every N hours during market window) ---
             now = datetime.now(timezone.utc)

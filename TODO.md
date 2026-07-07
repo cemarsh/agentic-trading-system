@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-06-18
-**Status**: Live (Paper) — VM 117 home-workstation. v2.0 aggressive-growth + IPO/derivatives signals; runaway bug class swept & guarded (`execution/guards.py`)
+**Last Updated**: 2026-07-06
+**Status**: Live (Paper) — VM 117 home-workstation. v2.1 risk engine: pre-trade gates (position/sector/quarantine caps), selection gates (hard IV, credit floors, earnings), position ledger, dead-man's switch, attribution + config-proposal learning loop, coded live-money gates.
 
 ---
 
@@ -170,3 +170,21 @@ Trigger: system captured **nothing** on the SpaceX IPO (narrow inputs: whale + p
 - [x] **RCA: daily Claude synthesis failed Jun 22-23** (`Connection error.`) — engine healthy; root cause was VM 117 advertising a global IPv6 address (ULA + Tailscale) with **no IPv6 default route**. glibc RFC 3484 default handed dual-stack hosts (`api.anthropic.com` has A+AAAA) their dead IPv6 addr first → anthropic SDK/httpx intermittently raised `APIConnectionError`. curl survived via Happy Eyeballs; the SDK did not. Journal still emailed via template fallback (Claude analysis missing).
 - [x] **Fix applied on VM** — uncommented `precedence ::ffff:0:0/96 100` in `/etc/gai.conf` → `getaddrinfo` now returns IPv4 first. Verified: raw SDK calls + real `_synthesize_with_claude()` both green. No restart needed.
 - [x] **Made durable** (`fe63062`) — idempotent gai.conf step added to `deploy/deploy.sh` so a VM rebuild re-applies it. Fixes the whole class (Anthropic, Alpaca, Resend, Slack, SEC EDGAR all stop trying dead IPv6 first).
+
+## 2026-07-06 — v2.1 Risk Engine (external review applied)
+
+Source: full-system review — "the system sells puts where it *can*, not where it *should*;
+signal modules propose, only a risk engine should size." All five layers implemented:
+
+- [x] **Layer 4 — pre-trade risk gate** (`execution/risk_gate.py`) — hard 5%-of-equity position cap (the FJET check), 1% IPO-quarantine cap + no options on quarantined names, 20% sector-correlation cap (equity value + CSP collateral per `risk.sector_map` bucket). Wired into whale buys, ladder buys, wheel CSPs. Fails closed on unknown equity. *Reality check at deploy time: current book violates every cap — XOM 28.7%, FJET 24.6% (quarantined), CCJ 20.9%, ALB 13.9%; 3 sectors >20%. Gate blocks NEW adds; existing positions wind down via wheel/PM/breakeven paths.*
+- [x] **Layer 3 — selection gates** — IV gate now HARD (`iv_gate_fail_open: false`; no history → no trade), CSP credit floor off real NBBO bid (≥ max($0.15/sh, `min_premium_pct`·strike)), roll credit floor `min_roll_credit: 0.15` (kills $0.01 rolls), earnings gate (`execution/earnings_calendar.py`, Finnhub — **needs `FINNHUB_API_KEY` in both .env files**; fail-open + loud warning without it), wheel entries now limit-at-bid (never market).
+- [x] **Layer 2 — one brain per position** (`execution/position_ledger.py`) — owner/state/opened_at per symbol (crash-safe JSON); PM defers rolls on legs held < 24h (`min_hold_hours`); stop-loss/profit-close exempt. PM thresholds (50%/21DTE) now wired to config (closed the old TODO).
+- [x] **Layer 1 — watchdog with authority** — heartbeat_check now CANCELS all open orders on stale heartbeat during market hours (`risk.deadman_cancel_orders`) before alerting; pushes heartbeat events to Splunk HEC (`SPLUNK_HEC_URL`/`SPLUNK_HEC_TOKEN`, optional). Telemetry fixed: temp reads `None`→"n/a (no sensor)" instead of fake 0.0°C; email bodies ASCII-normalized (mojibake in P&L lines).
+- [x] **Layer 5 — learning loop** — `execution/attribution.py` (per-module P&L + profit factor, conviction-bucket calibration) + `proposed_config_changes` table with `execution/config_proposals.py` CLI (propose/list/approve/reject/applied); both surfaced in the Friday weekly wrap-up.
+- [x] **Live-money gates in code** (`execution/live_readiness.py`) — `--mode live` refuses to start unless: ≥60d clean-alert streak, PF ≥1.3, max DD ≤8% over 90d, hard gates in config. First run: **NOT READY** (PF 0.44, DD 11.2%, streak 0d) — honest baseline.
+- [x] 42/42 tests green (new: test_risk_gate, test_position_ledger, test_wheel_gates; fixed stale mock in test_protective_logic)
+- [ ] **Deploy to VM 117** (`bash deploy/deploy.sh`) + run `db_logger.py --init` for the `proposed_config_changes` table + restart service
+- [ ] **Get a free Finnhub key** and add `FINNHUB_API_KEY` to WSL + workstation `.env` (earnings gate is fail-open until then)
+- [ ] Optional: `SPLUNK_HEC_URL`/`SPLUNK_HEC_TOKEN` in VM .env + a Splunk scheduled search alerting on missing `trading:heartbeat` events
+- [ ] Whale Watch returned nothing recently — decide: wire to a real API (Unusual Whales) or delete the module (attribution report will make the call data-driven)
+- [ ] Watch the first week of gate logs: expect CSP volume to drop sharply (hard IV gate + credit floors at VIX~16 — sitting in cash is correct behavior, not a bug)

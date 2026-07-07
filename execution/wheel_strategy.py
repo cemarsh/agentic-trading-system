@@ -30,10 +30,13 @@ class WheelPosition:
 
 
 class WheelStrategy:
-    def __init__(self, settings=None, alpaca_client=None, db_logger=None):
+    def __init__(self, settings=None, alpaca_client=None, db_logger=None,
+                 risk_gate=None, ledger=None):
         self.cfg = settings or cfg_module.load()
         self._alpaca = alpaca_client
         self._db = db_logger
+        self._risk_gate = risk_gate
+        self._ledger = ledger
         self._positions: Dict[str, WheelPosition] = {
             t: WheelPosition(ticker=t, stage=0)
             for t in self.cfg.wheel.tickers
@@ -72,19 +75,27 @@ class WheelStrategy:
 
         # --- Guard 0: IV-rank gate (only sell premium when it's rich enough) ---
         # Selling a CSP in a low-IV environment collects too little premium for the
-        # downside risk. Skip when IV rank is below the floor. Fail-open: if we have
-        # no IV history for the name, don't block the trade — just log.
+        # downside risk. HARD gate by default (iv_gate_fail_open: false): no IV
+        # history means NO trade — the correct behavior in a cheap-premium week is
+        # sitting in cash, and the system must be allowed to do nothing.
         min_ivr = getattr(self.cfg.wheel, "min_iv_rank", 0.0) or 0.0
-        if min_ivr and getattr(self.cfg, "database", None) and self.cfg.database.url:
-            try:
-                from execution.iv_tracker import get_iv_rank
-                ivr = get_iv_rank(ticker, self.cfg.database.url).get("iv_rank")
-                if ivr is not None and ivr < min_ivr:
-                    print(f"[WHEEL] {ticker} — IV rank {ivr:.0%} < {min_ivr:.0%} floor, "
-                          f"skipping CSP (premium too cheap)")
-                    return None
-            except Exception as e:
-                print(f"[WHEEL] {ticker} — IV gate check skipped ({e})")
+        fail_open = bool(getattr(self.cfg.wheel, "iv_gate_fail_open", False))
+        if min_ivr:
+            ivr = None
+            if getattr(self.cfg, "database", None) and self.cfg.database.url:
+                try:
+                    from execution.iv_tracker import get_iv_rank
+                    ivr = get_iv_rank(ticker, self.cfg.database.url).get("iv_rank")
+                except Exception as e:
+                    print(f"[WHEEL] {ticker} — IV rank lookup failed ({e})")
+            if ivr is not None and ivr < min_ivr:
+                print(f"[WHEEL] {ticker} — IV rank {ivr:.0%} < {min_ivr:.0%} floor, "
+                      f"skipping CSP (premium too cheap)")
+                return None
+            if ivr is None and not fail_open:
+                print(f"[WHEEL] {ticker} — no IV history and gate is fail-closed, "
+                      f"skipping CSP (run iv_tracker snapshots to build history)")
+                return None
 
         # --- Allocation guards ---
         try:
@@ -125,6 +136,32 @@ class WheelStrategy:
 
         expiry = self.target_expiry()
 
+        # Guard 3: earnings gate — a short put spanning an earnings date is a binary
+        # event bet, not premium selling. Fail-open only when the calendar is
+        # unavailable (no FINNHUB_API_KEY), and that is logged loudly.
+        if getattr(self.cfg.wheel, "earnings_gate", True):
+            try:
+                from execution.earnings_calendar import has_earnings_before
+                verdict = has_earnings_before(ticker, expiry)
+            except Exception as e:
+                print(f"[WHEEL] {ticker} — earnings check failed ({e}), proceeding")
+                verdict = None
+            if verdict:
+                print(f"[WHEEL] {ticker} — earnings before {expiry}, skipping CSP")
+                log_insight(source="wheel", category="decision",
+                            insight=f"SKIP CSP {ticker} — earnings inside expiry window (exp {expiry})",
+                            metadata={"ticker": ticker, "expiry": expiry})
+                return None
+
+        # Guard 4: central risk gate — quarantined names and sector-correlation cap.
+        if self._risk_gate:
+            ok, reason = self._risk_gate.check_option_collateral(ticker, strike * 100)
+            if not ok:
+                print(f"[RISK] CSP blocked — {reason}")
+                log_insight(source="risk_gate", category="decision",
+                            insight=f"BLOCKED CSP: {reason}", metadata={"ticker": ticker})
+                return None
+
         contracts = self._alpaca.get_options_contracts(ticker, expiry)
         puts = [c for c in contracts if c.get("type") == "put"]
         if not puts:
@@ -144,16 +181,39 @@ class WheelStrategy:
         if actual_strike != strike:
             print(f"[WHEEL] {ticker} — using nearest strike ${actual_strike} (target was ${strike})")
 
+        # Guard 5: minimum credit floor off the REAL NBBO. A thin bid is a fee
+        # generator with delta risk attached, not a trade. Floor = the larger of
+        # the absolute $/share minimum and min_premium_pct of the strike (the
+        # 1%-a-month yield bar). No quote → no verifiable credit → no trade.
+        quote = self._alpaca.get_option_quote(target["symbol"])
+        bid = quote["bid"] if quote and quote.get("bid") else 0.0
+        min_credit = max(
+            getattr(self.cfg.wheel, "min_credit_per_share", 0.15) or 0.0,
+            actual_strike * (self.cfg.wheel.min_premium_pct or 0.0) / 100.0,
+        )
+        if bid < min_credit:
+            print(f"[WHEEL] {ticker} — bid ${bid:.2f}/sh < ${min_credit:.2f} credit floor, "
+                  f"skipping CSP (premium too thin)")
+            return None
+
         try:
+            # Sell LIMIT at the bid — guarantees at least the credit the floor
+            # verified, and options market orders are rejected outside RTH anyway.
             order = self._alpaca.submit_option_order(
                 symbol=target["symbol"],
                 qty=1,
                 side="sell",
-                order_type="market",
+                order_type="limit",
+                limit_price=round(bid, 2),
             )
         except Exception as e:
             print(f"[WHEEL] {ticker} — order submission failed: {e}")
             return None
+
+        if self._ledger:
+            self._ledger.record_open(target["symbol"], owner="wheel")
+        if self._risk_gate:
+            self._risk_gate.record_fill(ticker, actual_strike * 100)
 
         pos.stage = 1
         pos.csp_strike = actual_strike
@@ -162,8 +222,9 @@ class WheelStrategy:
         log_insight(
             source="wheel",
             category="decision",
-            insight=f"SELL CSP {ticker} ${actual_strike} exp {expiry} — underlying ${current_price:.2f}",
-            metadata={"ticker": ticker, "strike": actual_strike, "expiry": expiry, "price": current_price},
+            insight=f"SELL CSP {ticker} ${actual_strike} exp {expiry} @ ${bid:.2f}/sh credit — underlying ${current_price:.2f}",
+            metadata={"ticker": ticker, "strike": actual_strike, "expiry": expiry,
+                      "price": current_price, "credit_per_share": bid},
         )
         if self._db:
             self._db.log_decision(
@@ -211,16 +272,27 @@ class WheelStrategy:
         if actual_cc_strike != cc_strike:
             print(f"[WHEEL] {ticker} — CC using nearest strike ${actual_cc_strike} (target was ${cc_strike})")
 
+        # Sell LIMIT at the bid — never a market order on an options book.
+        quote = self._alpaca.get_option_quote(target["symbol"])
+        cc_bid = quote["bid"] if quote and quote.get("bid") else 0.0
+        if cc_bid <= 0:
+            print(f"[WHEEL] {ticker} — no bid on CC {target['symbol']}, skipping")
+            return None
+
         try:
             order = self._alpaca.submit_option_order(
                 symbol=target["symbol"],
                 qty=1,
                 side="sell",
-                order_type="market",
+                order_type="limit",
+                limit_price=round(cc_bid, 2),
             )
         except Exception as e:
             print(f"[WHEEL] {ticker} — CC order submission failed: {e}")
             return None
+
+        if self._ledger:
+            self._ledger.record_open(target["symbol"], owner="wheel")
 
         pos.cc_strike = actual_cc_strike
         pos.cc_expiry = expiry
