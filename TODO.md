@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-07-06
-**Status**: Live (Paper) — VM 117 home-workstation. v2.1 risk engine: pre-trade gates (position/sector/quarantine caps), selection gates (hard IV, credit floors, earnings), position ledger, dead-man's switch, attribution + config-proposal learning loop, coded live-money gates.
+**Last Updated**: 2026-07-07
+**Status**: Live (Paper) — VM 117 home-workstation. v2.1 risk engine deployed + first live session; IV snapshot pipeline fixed (RTH window, limit=100, 15-day floor) — wheel re-arms ticker-by-ticker as IV history builds (CVX/LDOS/SHLD usable now).
 
 ---
 
@@ -95,7 +95,7 @@
 - [ ] Register `notifications.cloudmagicgroup.com` subdomain on Resend for cleaner sender
 - [ ] Flip `paper_mode: false` after verifying 10+ autonomous paper trades
 - [ ] Add ThinkPad daily sync for ops-dashboard.json to include trading metrics
-- [ ] Add IV rank/percentile check before opening CSPs (only sell when rank > 30) — needs historical IV snapshots in DB first
+- [x] Add IV rank/percentile check before opening CSPs (only sell when rank > 30) — done in v2.1 as a HARD gate (2026-07-06); snapshot pipeline fixed 2026-07-07 so history actually accumulates
 - [x] **Post-trade lessons** (2026-05-27) — `log_lesson()` called in `execute_stop()` with entry/exit/PnL; auto-feeds strategy review digests
 - [x] **Regime detector bug** fixed (2026-05-27) — `get_bars()` returning None when market closed; added `or []` guard in alpaca_client + `not bars` guard in regime_detector
 - [x] **`log_insight()` hooks extended** (2026-05-27) — wheel CSP/CC open, hedge entry/exit, protective stop/ladder all log to daily journal
@@ -190,3 +190,15 @@ signal modules propose, only a risk engine should size." All five layers impleme
 - [ ] Watch VM 117 DNS: two transient `github.com` resolution failures within 10 min during deploy (resolver 1.1.1.1 via systemd-resolved). Loop tolerates via network_failures counter, but if blips recur consider a fallback nameserver
 - [ ] Whale Watch returned nothing recently — decide: wire to a real API (Unusual Whales) or delete the module (attribution report will make the call data-driven)
 - [ ] Watch the first week of gate logs: expect CSP volume to drop sharply (hard IV gate + credit floors at VIX~16 — sitting in cash is correct behavior, not a bug)
+
+## 2026-07-07 — First live session of v2.1 + IV pipeline RCA
+
+- [x] **Gates verified live** — wheel skipped all tickers (hard IV gate), PM held all 4 short puts correctly (none at stop/roll thresholds), heartbeats flowing to Splunk `index=application`
+- [x] **RCA: "no IV history" on every ticker** — three stacked causes, all fixed:
+  1. (`741477f`) snapshot window was 8:30–8:59 ET **pre-market**, but Alpaca's indicative options feed is RTH-only → moved to 10:00–10:59 ET; derivatives scan now waits for the day's snapshot; IPO/eligibility stay pre-market
+  2. (`741477f`) `get_iv_rank` demanded 30 snapshots → `MIN_HISTORY_DAYS = 15`
+  3. (`3da5729`) snapshot fetch `limit=10` sampled only deep-ITM calls (sorted by symbol = ascending strike) which carry **no greeks** on the indicative feed → RTX had 0 usable contracts; `limit=100` → ~50. This was why names were "unavailable" even during RTH.
+- [x] **Verified on VM during RTH**: 22/23 tickers snapshotted (OPTX has no options). Usable IV rank now: CVX, LDOS, SHLD, AADX; FJET at 13; rest 1–9 snapshots (~2–3 weeks to arm at 1/day)
+- [x] Positions at check: FJET −$4.7k (breakeven GTC $5.71 resting), CCJ $98p −116% of premium (stop at −250%), CCJ $90p −87%, ALB $125p −25%, XOM $130p +25% (tracking to 50% close). Day P&L −$1,505.
+- [ ] Watch CCJ $98 put — halfway to its −250% stop; PM will BTC automatically if it gets there
+- [ ] CapitolTrades scraper now rate-limited (429) — strengthens the "wire Whale Watch to a real API or delete it" decision

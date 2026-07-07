@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "name": "trading",
+  "shuri_id": "13abc991-389a-468c-a82a-57ef960f10e9",
+  "last_synced": "2026-05-17T06:26:46.234181+00:00",
+  "category": "internal_product",
+  "status": "active",
+  "description": "**Version**: 1.5.0",
+  "client_name": null,
+  "folder": "Projects",
+  "hosting_provider": "other",
+  "git_repo_url": "https://github.com/cemarsh/agentic-trading-system",
+  "tech_stack": [
+    "Python"
+  ],
+  "tags": [],
+  "local_path": "/home/stacksbyc/projects/trading",
+  "thinkpad_path": "/home/aiworker/projects/trading",
+  "dev_port": null,
+  "notes": "",
+  "urls": [],
+  "env_keys": [
+    "ALERT_EMAIL",
+    "ALPACA_BASE_URL",
+    "ALPACA_KEY",
+    "ALPACA_SECRET",
+    "ANTHROPIC_API_KEY",
+    "DATABASE_URL",
+    "GOOGLE_DOCS_FOLDER_ID",
+    "MARKET_TIMEZONE",
+    "RESEND_API_KEY",
+    "SLACK_WEBHOOK_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_KEY",
+    "SUPABASE_URL",
+    "WEBHOOK_SECRET"
+  ],
+  "secrets_status": "partial"
+}
