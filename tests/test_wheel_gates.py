@@ -106,3 +106,25 @@ def test_ledger_records_open():
     assert ws.open_csp("CCJ") is not None
     ledger.record_open.assert_called_once()
     assert ledger.record_open.call_args.kwargs.get("owner") == "wheel"
+
+
+def test_run_cycle_skips_quarantined_tickers():
+    cfg = _settings()
+    cfg.wheel.tickers = ["CCJ", "FJET"]
+    cfg.risk.quarantined_tickers = ["FJET"]
+    cfg.protection.no_auto_manage = []
+    alpaca = _alpaca()
+    ws = WheelStrategy(settings=cfg, alpaca_client=alpaca)
+    ws.open_csp = MagicMock(return_value=None)
+    ws.run_cycle()
+    called = [c.args[0] for c in ws.open_csp.call_args_list]
+    assert "FJET" not in called
+    assert "CCJ" in called
+
+
+def test_quarantine_set_taken_from_risk_gate():
+    gate = MagicMock()
+    gate.quarantined = {"FJET", "OPTX"}
+    gate.check_option_collateral.return_value = (True, "ok")
+    ws = WheelStrategy(settings=_settings(), alpaca_client=_alpaca(), risk_gate=gate)
+    assert ws._quarantined == {"FJET", "OPTX"}

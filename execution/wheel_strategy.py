@@ -41,6 +41,21 @@ class WheelStrategy:
             t: WheelPosition(ticker=t, stage=0)
             for t in self.cfg.wheel.tickers
         }
+        # Quarantined tickers are excluded UPSTREAM, at candidate generation —
+        # not just at the risk gate. Without this, run_cycle re-proposed a FJET
+        # CSP every ~60s and the gate blocked it every time (~320 wasted
+        # evaluations + insight-log entries per day, W28 finding).
+        if risk_gate is not None and isinstance(getattr(risk_gate, "quarantined", None), (set, frozenset, list)):
+            self._quarantined = set(risk_gate.quarantined)
+        else:
+            risk = getattr(self.cfg, "risk", None)
+            prot = getattr(self.cfg, "protection", None)
+            self._quarantined = set(getattr(risk, "quarantined_tickers", None) or []) | set(
+                getattr(prot, "no_auto_manage", None) or []
+            )
+        excluded = self._quarantined & set(self.cfg.wheel.tickers)
+        if excluded:
+            print(f"[WHEEL] excluding quarantined ticker(s) from CSP candidates: {', '.join(sorted(excluded))}")
 
     def target_expiry(self) -> str:
         """Next expiry date N weeks out (Friday)."""
@@ -320,6 +335,8 @@ class WheelStrategy:
         """Run one full Wheel cycle check across all tickers. Returns count of contracts placed."""
         placed = 0
         for ticker in self.cfg.wheel.tickers:
+            if ticker in self._quarantined:
+                continue  # never a CSP candidate — quarantined (see __init__)
             pos = self._positions[ticker]
             if pos.stage == 0:
                 result = self.open_csp(ticker)
