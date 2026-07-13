@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-07-07
-**Status**: Live (Paper) — VM 117 home-workstation. v2.1 risk engine deployed + first live session; IV snapshot pipeline fixed (RTH window, limit=100, 15-day floor) — wheel re-arms ticker-by-ticker as IV history builds (CVX/LDOS/SHLD usable now).
+**Last Updated**: 2026-07-13
+**Status**: Live (Paper) — VM 117 home-workstation. v2.1 risk engine through its first full week (W28): PM closed every underwater CSP by rule (no penny rolls, no earnings-day expiries), book is now FJET-only at $89.3k equity. Wheel candidate loop no longer proposes quarantined tickers.
 
 ---
 
@@ -200,5 +200,12 @@ signal modules propose, only a risk engine should size." All five layers impleme
   3. (`3da5729`) snapshot fetch `limit=10` sampled only deep-ITM calls (sorted by symbol = ascending strike) which carry **no greeks** on the indicative feed → RTX had 0 usable contracts; `limit=100` → ~50. This was why names were "unavailable" even during RTH.
 - [x] **Verified on VM during RTH**: 22/23 tickers snapshotted (OPTX has no options). Usable IV rank now: CVX, LDOS, SHLD, AADX; FJET at 13; rest 1–9 snapshots (~2–3 weeks to arm at 1/day)
 - [x] Positions at check: FJET −$4.7k (breakeven GTC $5.71 resting), CCJ $98p −116% of premium (stop at −250%), CCJ $90p −87%, ALB $125p −25%, XOM $130p +25% (tracking to 50% close). Day P&L −$1,505.
-- [ ] Watch CCJ $98 put — halfway to its −250% stop; PM will BTC automatically if it gets there. Both CCJ puts expire ON earnings day (7/31); at 21 DTE (~Jul 10) the PM will close them rather than roll (all roll expiries span the earnings date)
+- [x] Watch CCJ $98 put — resolved as predicted: PM BTC'd both CCJ puts + ALB at 21 DTE (no roll credit ≥ $0.15 floor / earnings-blocked expiries); MP stopped at −119.6%. Realized ~−$2.6k in W28 clearing the underwater book. XOM put finished +42.8% — the floor-compliant one worked.
+
+## 2026-07-13 — W28 wrap + candidate-loop fix
+
+- [x] **W28 results (first full v2.1 week)** — equity $89,812 → $87,925 in-week, recovered to $89,271 by Jul 13; book cleared to FJET-only (all CSPs closed by rule). Drawdown was inherited positions unwinding, not new risk: every close was a rule-fire (21-DTE + credit floor + earnings gate), zero penny rolls post-deploy, zero critical alerts.
+- [x] **Wheel candidate-loop fix** (`19cfa48`) — journal filed it URGENT twice: run_cycle proposed FJET CSPs every ~60s, risk gate blocked ~170–320/day (wasted evals + insight spam). Quarantined tickers now excluded at candidate generation (upstream), taken from the risk gate's resolved set. Verified live: startup logs "excluding quarantined ticker(s): AADX, FJET, OPTX".
+- [ ] **Policy classifier miss (W28)** — aviation-tariff EO mapped to AI-infra tickers (should be GE/RTX/HWM/TDG/SPR). System correctly didn't trade it, but sector mapping needs a look.
+- [ ] **DNS fallback for VM 117 — still pending decision** (6 blips now, hit github + finnhub): proposed netplan change to Technitium `10.1.50.115` primary + `1.1.1.1` fallback
 - [ ] CapitolTrades scraper now rate-limited (429) — strengthens the "wire Whale Watch to a real API or delete it" decision
