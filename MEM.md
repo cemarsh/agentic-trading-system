@@ -54,6 +54,16 @@
 
 ## Learnings & Annealings
 
+- **2026-07-13**: **[URGENT — Engineering]** Fix the FJET CSP candidate loop: add quarantine-status check to the **wheel candidate generator** (upstream of risk_gate), not just the gate itself. Target: zero blocked-CSP log entries for quarantined tickers. This is generating ~320 wasted cycles/day.
+
+- **2026-07-10**: **[CRITICAL — Engineering] Fix FJET CSP signal loop:** The signal generator must check the quarantine list *before* generating a CSP candidate signal for FJET. Add a pre-filter step: `if ticker in QUARANTINE_LIST: skip signal generation`. This eliminates ~170 wasted risk_gate evaluations per session.
+
+- **2026-07-09**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-07-08**: **CCJ P98 ($7.80, -108%):** This position requires immediate review at open. With 23 days to expiry and $7.80 premium, intrinsic value is deep. Evaluate closing the short put (buy to close) to stop further delta bleed, or rolling down-and-out to a later expiry at a lower strike to recapture time value. Do not hold passively to expiry.
+
+- **2026-07-07**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
 - **2026-07-06**: **XOM sequencing fix:** Investigate why wheel opened XOM260724P00128000 at 16:59 and position_manager rolled it at 17:04. Add a `min_hold_before_roll_hours` guard (suggest: 24h minimum) to prevent same-session roll of freshly opened positions.
 
 - **2026-07-02**: **MP260724P00057000 — URGENT:** At -119.6% with 22 DTE and mark at $5.95. Evaluate BTC immediately at open. Check whether a roll to 8/21 at $57 or lower strike can generate any credit. If no credit available, BTC to cap loss before it worsens. This is the highest-priority position.
