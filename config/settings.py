@@ -56,6 +56,14 @@ class IntelligenceConfig:
 
 
 @dataclass
+class FeedsConfig:
+    """Poll intervals for external intelligence feeds (see strategy_params.yaml)."""
+    whale_poll_minutes: int = 30
+    policy_poll_minutes: int = 15
+    fetch_error_log_cooldown_minutes: int = 60
+
+
+@dataclass
 class WhaleWatchConfig:
     source_url: str
     politician_names: List[str]
@@ -77,6 +85,9 @@ class WheelConfig:
     iv_gate_fail_open: bool = False   # False = no IV history means NO trade (hard gate)
     min_credit_per_share: float = 0.15  # absolute floor on CSP entry credit from the NBBO bid
     earnings_gate: bool = True        # skip CSPs whose expiry window contains an earnings date
+    max_contracts_per_trade: int = 1  # hard ceiling on contracts per CSP; 1 = legacy behavior
+    prioritize_by_iv_rank: bool = False  # evaluate richest-premium candidates first
+    skip_log_cooldown_minutes: int = 240  # de-dupe repeated skip decisions in the log/journal
 
 
 @dataclass
@@ -164,6 +175,7 @@ class Settings:
     position_management: PositionManagementConfig = None
     risk: RiskConfig = None
     live_gates: LiveGatesConfig = None
+    feeds: FeedsConfig = None
 
 
 def load() -> Settings:
@@ -205,6 +217,7 @@ def load() -> Settings:
         ),
         hardware=HardwareConfig(**raw["hardware"]),
         intelligence=IntelligenceConfig(**raw["intelligence"]),
+        feeds=FeedsConfig(**(raw.get("feeds") or {})),
         whale_watch=WhaleWatchConfig(**raw["whale_watch"]),
         wheel=WheelConfig(**raw["wheel"]),
         protection=ProtectionConfig(**raw["protection"]),

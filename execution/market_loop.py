@@ -32,7 +32,7 @@ from execution.regime_detector import RegimeDetector
 from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
-from execution.guards import has_acted, mark_acted
+from execution.guards import Cooldown, has_acted, mark_acted
 from execution.weekly_journal import weekly_wrapup
 from execution.position_manager import PositionManager
 from execution.morning_briefing import MorningBriefing
@@ -589,6 +589,36 @@ def run(mode: str):
 
     print(f"[START] Trading loop active — {mode.upper()} mode — {datetime.now().isoformat()}")
 
+    # Feed poll cooldowns. Persisted into agent_state so a systemd restart loop can't
+    # reset them and resume hammering an already-rate-limiting source — the whole point
+    # of the backoff would otherwise be undone by the failure mode most likely to
+    # trigger it. Per-source keys ("whale"/"policy") share one store.
+    _feed_cfg = getattr(cfg, "feeds", None)
+    _feed_store = state.setdefault("_feed_polls", {})
+    # One Cooldown per source: the interval differs per feed, and Cooldown carries a
+    # single duration. They share the persisted store, keyed by source name.
+    _whale_cd = Cooldown((getattr(_feed_cfg, "whale_poll_minutes", 30) or 30) * 60,
+                         store=_feed_store)
+    _policy_cd = Cooldown((getattr(_feed_cfg, "policy_poll_minutes", 15) or 15) * 60,
+                          store=_feed_store)
+    _feed_cds = {"whale": _whale_cd, "policy": _policy_cd}
+
+    class _FeedGate:
+        """feed_cd.ready('whale') → that source's own interval, persisted."""
+        @staticmethod
+        def ready(source: str) -> bool:
+            cd = _feed_cds.get(source)
+            if cd is None or not cd.ready(source):
+                return False
+            save_state(state)   # persist immediately: a crash must not re-open the window
+            return True
+
+    feed_cd = _FeedGate()
+    feed_err_cd = Cooldown(
+        (getattr(_feed_cfg, "fetch_error_log_cooldown_minutes", 60) or 60) * 60,
+        store=state.setdefault("_feed_err_logs", {}),
+    )
+
     whale_hits_session: list = []
     policy_feed_ok: bool = True
     wheel_tickers_scanned: int = 0
@@ -646,6 +676,9 @@ def run(mode: str):
             equity = float(account.get("equity", 0) or 0)
             risk_gate.refresh(positions, equity)
             ledger.sync(positions)
+            # Wheel stage is broker-derived, not in-memory: a restart mid-cycle used to
+            # reset every ticker to "flat" and re-sell CSPs on names already short a put.
+            wheel.sync_positions(positions)
 
             # --- Protective Logic ---
             stop_tickers = protection.check_stops(current_prices)
@@ -668,11 +701,17 @@ def run(mode: str):
                 )
 
             # --- Whale Watch ---
-            try:
-                whale_hits = whale.get_actionable_trades()
-            except Exception as we:
-                print(f"[WHALE] Fetch error: {we}")
-                whale_hits = []
+            # Polled on a cooldown, not every cycle. Congressional disclosures update
+            # daily at best; re-scraping every ~60s was ~390 requests/day and is the
+            # most likely reason CapitolTrades started returning 429 for this IP.
+            whale_hits = []
+            if feed_cd.ready("whale"):
+                try:
+                    whale_hits = whale.get_actionable_trades()
+                except Exception as we:
+                    if feed_err_cd.ready("whale"):
+                        print(f"[WHALE] Fetch error: {we}")
+                    whale_hits = []
             if whale_hits:
                 whale_hits_session = whale_hits  # keep latest batch for status reports
             for trade in whale_hits:
@@ -771,27 +810,33 @@ def run(mode: str):
                     print(f"[WHALE] Order failed {trade.ticker}: {oe}")
 
             # --- Policy Intelligence Monitor ---
-            try:
-                policy_signals = policy.scan()
-                policy_feed_ok = True
-                if policy_signals:
-                    print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
-                    for sig in policy_signals:
+            # Same cooldown treatment as Whale Watch: these are press-release feeds
+            # with daily cadence, and one of the four sources (DoD contracts) was
+            # emitting a 403 on every single cycle.
+            policy_signals = []
+            if feed_cd.ready("policy"):
+                try:
+                    policy_signals = policy.scan()
+                    policy_feed_ok = True
+                    if policy_signals:
+                        print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
+                        for sig in policy_signals:
+                            log_insight(
+                                source="policy",
+                                category="signal",
+                                insight=str(sig)[:300] if not isinstance(sig, dict)
+                                        else sig.get("title") or sig.get("headline") or str(sig)[:300],
+                                metadata=sig if isinstance(sig, dict) else {"raw": str(sig)},
+                            )
+                except Exception as pe:
+                    policy_feed_ok = False
+                    if feed_err_cd.ready("policy"):
+                        print(f"[POLICY] scan error: {pe}")
                         log_insight(
                             source="policy",
-                            category="signal",
-                            insight=str(sig)[:300] if not isinstance(sig, dict)
-                                    else sig.get("title") or sig.get("headline") or str(sig)[:300],
-                            metadata=sig if isinstance(sig, dict) else {"raw": str(sig)},
+                            category="error",
+                            insight=f"policy scan error: {pe}",
                         )
-            except Exception as pe:
-                policy_feed_ok = False
-                print(f"[POLICY] scan error: {pe}")
-                log_insight(
-                    source="policy",
-                    category="error",
-                    insight=f"policy scan error: {pe}",
-                )
 
             # --- Wheel Strategy ---
             wheel_tickers_scanned = len(cfg.wheel.tickers)

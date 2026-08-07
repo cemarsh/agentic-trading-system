@@ -12,6 +12,7 @@ Run on each loop tick alongside whale_watch. Fires alerts on new signals.
 
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -111,9 +112,22 @@ SOURCES = [
         "level": 1,
     },
     {
+        # The department rebranded to war.gov; defense.gov now sits behind an Akamai
+        # deny rule that returns 403 to everything (a browser User-Agent does not help
+        # — verified 2026-08-07). This source had been erroring on EVERY loop cycle
+        # since the rename, contributing nothing but log noise.
+        #
+        # The war.gov RSS endpoint is not behind that rule. ContentType=400 is the
+        # "Contracts - U.S. Dept. of War" channel. CAVEAT: items are daily rollups
+        # ("Contracts for Aug. 7, 2026") — the award bodies naming actual companies
+        # live on article pages, which ARE Akamai-blocked. So this source is now
+        # healthy but title-only, and will rarely match a ticker. For real
+        # contract-award → ticker signal, use the USASpending.gov awards API
+        # (already tracked in TODO Phase 2); it is structured and unblocked.
         "name": "DoD Contract Announcements",
-        "url": "https://www.defense.gov/News/Contracts/",
-        "selector": "p.title",
+        "url": "https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=20",
+        "selector": None,
+        "format": "rss",
         "level": 2,
     },
     {
@@ -176,6 +190,19 @@ class PolicyMonitor:
             headers = {"User-Agent": "Mozilla/5.0 (compatible; PolicyMonitor/1.0)"}
             resp = requests.get(source["url"], headers=headers, timeout=12)
             resp.raise_for_status()
+
+            # RSS path (e.g. war.gov contracts feed)
+            if source.get("format") == "rss":
+                import html as _html
+                items = re.findall(r"<item>(.*?)</item>", resp.text, re.S)[:20]
+                titles = []
+                for item in items:
+                    m = re.search(r"<title>(.*?)</title>", item, re.S)
+                    if m:
+                        title = _html.unescape(m.group(1)).strip()
+                        if title:
+                            titles.append(title)
+                return titles
 
             # JSON API path (e.g. Federal Register)
             if source.get("selector") is None:
