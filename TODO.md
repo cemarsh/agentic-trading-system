@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-07-13
-**Status**: Live (Paper) — VM 117 home-workstation. v2.1 risk engine through its first full week (W28): PM closed every underwater CSP by rule (no penny rolls, no earnings-day expiries), book is now FJET-only at $89.3k equity. Wheel candidate loop no longer proposes quarantined tickers.
+**Last Updated**: 2026-08-07
+**Status**: Live (Paper) — VM 117 home-workstation, HEAD `ad4bb52`. v2.2 throughput release: diagnosed and fixed why the book sat at 13.8% allocation with one open contract. Equity $85.8k. Simulated cycle now deploys $30.4k collateral across 6 contracts vs $2.8k across 1, with no risk limit loosened except a temporary IV-floor correction.
 
 ---
 
@@ -207,5 +207,33 @@ signal modules propose, only a risk engine should size." All five layers impleme
 - [x] **W28 results (first full v2.1 week)** — equity $89,812 → $87,925 in-week, recovered to $89,271 by Jul 13; book cleared to FJET-only (all CSPs closed by rule). Drawdown was inherited positions unwinding, not new risk: every close was a rule-fire (21-DTE + credit floor + earnings gate), zero penny rolls post-deploy, zero critical alerts.
 - [x] **Wheel candidate-loop fix** (`19cfa48`) — journal filed it URGENT twice: run_cycle proposed FJET CSPs every ~60s, risk gate blocked ~170–320/day (wasted evals + insight spam). Quarantined tickers now excluded at candidate generation (upstream), taken from the risk gate's resolved set. Verified live: startup logs "excluding quarantined ticker(s): AADX, FJET, OPTX".
 - [ ] **Policy classifier miss (W28)** — aviation-tariff EO mapped to AI-infra tickers (should be GE/RTX/HWM/TDG/SPR). System correctly didn't trade it, but sector mapping needs a look.
-- [ ] **DNS fallback for VM 117 — still pending decision** (6 blips now, hit github + finnhub): proposed netplan change to Technitium `10.1.50.115` primary + `1.1.1.1` fallback
-- [ ] CapitolTrades scraper now rate-limited (429) — strengthens the "wire Whale Watch to a real API or delete it" decision
+- [x] **DNS fallback for VM 117** — done 2026-08-07. Technitium `10.1.50.115` primary + `1.1.1.1` fallback in netplan; applied live and made idempotent in `deploy/deploy.sh`.
+- [x] CapitolTrades 429 — root cause was our own polling (every ~60s, ~390 req/day). Now on a 30min persisted cooldown. The "real API or delete it" decision still stands but is no longer urgent.
+
+## 2026-08-07 — v2.2: why nothing was trading (diagnosis + throughput fixes)
+
+Three weeks of journals had been stranded on the VM; once rescued they showed the
+same two findings repeated almost daily and never actioned. Root-caused the whole
+"engine healthy, no trades" picture. Deployed HEAD `ad4bb52`, 65 tests green.
+
+**Diagnosis — four causes, three of them bugs:**
+- [x] **FJET mis-bucketed** — its dead $18.1k equity (21.1%) sat in `defense_aerospace`, putting the bucket over the 20% sector cap and hard-blocking CSPs on all 7 defense names for weeks, incl. AVAV at IV rank 100%. Speculative IPO micro-caps now have their own `space_micro` bucket.
+- [x] **`qty=1` hardcoded** in `open_csp` — caps authorized 4 contracts, it sold 1. Now sized to the smallest of per-trade / sector / allocation headroom + a contract ceiling, with the SIZED order re-checked against the gate. Added `RiskGate.collateral_headroom()`.
+- [x] **File-order allocation** — candidates were evaluated in YAML order, so the first name consumed the shared collateral budget (sold GEO at IVR 20% for $23 while AVAV at IVR 100% got nothing). Now ranked by IV rank descending.
+- [x] **Short-history IV rank** — `iv_history` holds only 19–26 snapshot days/ticker (48 max). A 30% floor against a ~1-month window is far stricter than against 52 weeks. Floor 0.30 → **0.15 TEMPORARY, revisit 2026-12-01**.
+
+**Throughput + hygiene:**
+- [x] **Universe rebuilt to the account** — 11 names could never trade at $86k (one contract > $12,870 cap; CAT needed $80,550). Parked with prices in a YAML comment; replaced with 11 live-validated affordable names (OKLO/SMR/UUUU/NNE, AA/FCX/CLF, APA, CSCO, LUNR/ASTS). Wheel now logs unreachable names once per process.
+- [x] **Policy → execution pathway** — `execution/dynamic_universe.py`. Policy-flagged tickers become candidates (cap 8, 30-day TTL, never quarantined), still clearing every gate, and are added to the iv_tracker snapshot set so their IV history starts accruing.
+- [x] **Skip-log spam killed** — journal flagged it URGENT on 07-23 and 4 more times. 150–320 duplicate entries/day, now de-duped per (ticker, reason) on a 4h cooldown.
+- [x] **Wheel stage now broker-derived** — was in-memory only, so a restart reset all tickers to "flat" and could re-sell a CSP on a name already short a put (service restarted 07-31; only the sector cap absorbed it).
+- [x] **Feed polling backed off** — whale 30min / policy 15min, persisted in agent_state so a restart loop can't reset them.
+- [x] **DoD source repointed** — defense.gov 403s everything (Akamai); department rebranded to war.gov. Now on the war.gov RSS Contracts channel (`ContentType=400`).
+- [x] **FJET share-lock mystery closed** — the 4,261 "locked" shares are our own resting GTC sell @ $5.71 (the breakeven order). Decision: keep it, write no CCs (a CC at/above breakeven collects ~nothing; below it caps the exit).
+
+**Open / next:**
+- [ ] **Monday 08-10 open — verify the throughput fix live.** Expect ~6 contracts across ALB/RKLB/GEO. Confirm sizing >1 contract, IV-ranked ordering, and that skip-log volume collapses.
+- [ ] **~3 weeks (from 08-10) — the 11 new tickers become eligible** once iv_tracker accrues `MIN_HISTORY_DAYS` (15) of snapshots. Nothing to do but watch; they are hard-gated until then.
+- [ ] **Revisit `min_iv_rank` 0.15 → 0.30 on 2026-12-01** once ~6 months of IV history exists.
+- [ ] **USASpending.gov awards API** — the war.gov contracts feed is healthy but title-only ("Contracts for Aug. 7, 2026"); award bodies naming companies are on Akamai-blocked article pages. This is the real fix for contract→ticker signal (already Phase 2).
+- [ ] Consider IV percentile (or a longer provider-sourced lookback) instead of short-window IV rank.

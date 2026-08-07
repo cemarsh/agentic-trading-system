@@ -242,6 +242,7 @@ Beyond the policy/whale/wheel core, the system now widens its senses and hardens
 ### New signal sources
 - **IPO Calendar** (`execution/ipo_calendar.py`) — detects fresh IPOs from **SEC EDGAR** 424B4 filings (Nasdaq's API is server-blocked), filters out SPACs and established-company secondaries (via price-history length), checks Alpaca tradability + options, and writes a `trading_signals` row per new tradable name. *(First catch: the SpaceX IPO, `SPCX`.)*
 - **Derivatives signals** (`execution/derivatives_signals.py`) — classifies each name's premium environment from **IV rank** (rich/normal/cheap) and feeds the **wheel IV-gate**: CSPs are only sold when IV rank ≥ `wheel.min_iv_rank`. IV comes from the existing Alpaca token (indicative feed, market hours).
+- **Signal-promoted universe** (`execution/dynamic_universe.py`) — closes the policy → execution gap. Policy Monitor flagged 19 tickers in a single week and produced **zero** orders, because the wheel only ever read the hand-edited list in `strategy_params.yaml`. Actionable-tier signal tickers now become **candidates** (capped at 8, expiring 30 days after the last supporting signal, never quarantined names) and are added to the `iv_tracker` snapshot set. Promotion grants candidacy and nothing else — every promoted name still clears the IV floor, credit floor, earnings gate and risk caps. Because the IV gate is hard, a promoted ticker cannot trade until it has accrued 15 snapshots: **promotion starts a clock, it does not open a door.**
 - **Wheel-eligibility watch** — alerts (email + Slack) when a matrix ticker that lacked options gains them, so new IPO names auto-become wheel-able.
 
 ### Active position management (`execution/position_manager.py`)
@@ -271,9 +272,24 @@ off **live broker state**, not module-internal memory:
   are three flavors of the same bet; the gate knows that.
 - Fails **closed**: unknown equity → no trade.
 
+### Sizing — fill the authorized capacity (v2.2, 2026-08-07)
+The gates above say *whether*; these decide *how much*. `open_csp` sizes each CSP to the
+**smallest** of per-trade cap, sector headroom (`RiskGate.collateral_headroom()`), remaining
+allocation budget, and `wheel.max_contracts_per_trade` — then re-checks the **sized** order
+against the gate. Candidates are evaluated **richest-IV-rank first**, because collateral is a
+shared resource and whoever is sized first consumes it.
+
+> Previously `qty` was hardcoded to 1 and candidates ran in YAML order, so the book sat at
+> 13.8% allocation against a 65% budget while selling a $23 credit on a 20%-IV-rank name.
+> Names whose single contract exceeds the per-trade cap are structurally unreachable at a
+> given account size and are now reported once per process rather than silently never trading.
+
 ### Selection gates — sell where it *should*, not where it *can*
-- **Hard IV gate** — `wheel.min_iv_rank` (30%) with `iv_gate_fail_open: false`: no IV history
-  means **no trade**. Sitting in cash is a permitted position.
+- **Hard IV gate** — `wheel.min_iv_rank` with `iv_gate_fail_open: false`: no IV history
+  means **no trade**. Sitting in cash is a permitted position. *Currently **0.15**, temporarily
+  reduced from 0.30 (revisit 2026-12-01): IV rank is computed against stored history, and
+  `iv_history` holds only ~1 month per ticker, which compresses the range and depresses every
+  rank. The floor tracks the evidence available, not a change in risk appetite.*
 - **Credit floors** — CSP entry requires a real NBBO bid ≥ max($0.15/sh, `min_premium_pct` of
   strike); rolls require ≥ `position_management.min_roll_credit` ($0.15/sh) or they close.
   No more $0.01 rolls. All entries are **limit orders at the bid**.
