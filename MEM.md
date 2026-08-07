@@ -54,6 +54,44 @@
 
 ## Learnings & Annealings
 
+- **2026-08-07**: **FJET — define the exit:** With -$7,779 unrealized on a 4,570-share position in a thinly-traded AMEX micro-cap, set a hard rule: if FJET closes below $3.80 (prior day's close), begin partial liquidation of available 309 shares. Document max loss tolerance for this position explicitly. Do not add to it.
+
+- **2026-08-06**: **FJET — requires explicit exit decision:** Define a stop or managed exit threshold NOW. At $3.80 vs $5.70 avg entry, the position needs either a documented hold thesis (with price target and time horizon) or a staged liquidation plan. With only 309 shares available, check margin/borrow constraints. If no thesis exists, begin reducing — do not let -$8.7K unrealized grow further by default.
+
+- **2026-08-05**: **FJET — Determine share lock cause immediately:** Pull open orders and existing options on FJET before the bell. If a short call exists, review strike vs. current price ($3.745). If shares are margin-locked, assess whether a partial liquidation to cut the position is appropriate given the -34% drawdown. Do not hold 4,570 shares passively without a defined exit thesis.
+
+- **2026-08-04**: **Fix wheel scanner loop:** Add a per-ticker, per-expiry dedup cache so that `SKIP CSP [TICKER] — earnings inside expiry window` logs only *once per session* per ticker/expiry pair, not every 65 seconds. This is generating ~300 junk log entries per day and masking real signal volume.
+
+- **2026-08-03**: **[FJET — URGENT]** Investigate why 4,261 of 4,570 shares are unavailable (`qty_available = 309`). If margin lock: assess whether reducing position is possible. If a partial assignment artifact: confirm status. Set a manual exit target: consider selling the 309 available shares near open if FJET shows continuation above $3.85. Do not average down further.
+
+- **2026-07-31**: **FJET — Investigate share lock immediately at open:** Determine why only 309/4,570 shares are qty_available. If covered call is outstanding, identify strike/expiry. If margin hold, assess whether adding capital or reducing position releases shares. This is the #1 priority — a 37% loss position with locked shares and no exit flexibility is a structural risk.
+
+- **2026-07-30**: **Fix wheel scan loop immediately:** The scan is re-evaluating and re-logging identical SKIP decisions every ~60 seconds. Add a session-level deduplication cache: if `(ticker, reason, expiry)` tuple was already logged this session, suppress re-logging. This is the #1 system issue today.
+
+- **2026-07-29**: **Fix the wheel skip-log spam immediately.** Add session-level dedup: once a ticker is logged as skipped for a given reason+expiry, suppress further identical entries until session reset. 1,400 log entries for 5 skip decisions is a noise/storage problem that will bury real signals.
+
+- **2026-07-28**: **Fix the wheel loop:** Add a session-level cache so earnings-blocked tickers (MP, GEO, CCJ, ALB, KTOS vs. Aug 14 expiry) are excluded at scan initialization, not re-evaluated every 60 seconds. This eliminates ~150 wasted decision records per day.
+
+- **2026-07-27**: **Fix wheel loop deduplication:** Add session-level cache so CCJ/MP/GEO earnings-blocked SKIPs fire **once per session**, not every 60 seconds. This is a config/logic fix — the current behavior generated ~150 redundant log entries today with zero informational value.
+
+- **2026-07-24**: **FJET covered call:** Evaluate writing covered calls on the 309 available shares immediately at open. With IV rank 50%, target the Aug 7 $3.50 or $4.00 strike. Check why 4,261 shares are unavailable (`qty_available = 309`) — resolve or document the restriction before market open.
+
+- **2026-07-23**: **🔴 Fix MP skip-loop deduplication immediately:** Add a session-level or DB-level check: if `(ticker='MP', expiry='2026-08-07', action='SKIP', date='2026-07-24')` already exists in decision_logic, suppress re-insert. Do not log again until expiry or ticker changes.
+
+- **2026-07-22**: **FJET — Define exit criteria NOW.** With current price $3.70 and avg entry $5.70, this position has no technical floor defined in the data. Before the open, establish a hard stop: either exit all 309 available shares at market open, or set a limit to liquidate available qty if FJET trades below $3.50. Do not let another 8% day pass without action.
+
+- **2026-07-21**: **FJET — Define exit threshold NOW:** With only 309 shares available and -29.7% unrealized, set a hard stop-review: if FJET fails to hold $4.00 on open, begin scaling out the 309 available shares. Do not average down. Target: reduce position size, not increase it.
+
+- **2026-07-20**: **FJET — Assess exit immediately at open.** Current price $3.72, avg entry $5.70, -34.8% unrealized. Clarify why only 309/4,570 shares are qty_available — if locked by margin restriction, this is a forced-hold risk. If tradable, evaluate whether to cut the remaining available 309 shares to reduce exposure. Do not add. This position is the single largest systemic risk to the account.
+
+- **2026-07-17**: **FJET — Investigate share availability lock immediately at open.** Determine why only 309/4,570 shares are available. If a GTC sell order exists, confirm price and adjust if bid is unreachable at current $3.825. If margin hold, assess whether broker is approaching a margin call threshold.
+
+- **2026-07-16**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-07-15**: **FJET triage first:** At open, evaluate whether a stop-loss or partial liquidation is warranted. At $4.365 with avg entry $5.702 and -23.5% drawdown, continued holding requires a documented thesis. If no recovery catalyst exists, set a hard stop at $4.00 or begin scaling out the 309 available shares immediately. Do not let this become a permanent capital impairment.
+
+- **2026-07-14**: **FJET — assess exit/hedge:** With only 309 shares available, determine immediately why 4,261 shares are restricted. If it's a settlement issue, clarify T+1 availability. If open orders are holding them, cancel and re-evaluate. At $4.72 vs. $5.70 avg entry, the position needs a defined max-loss level or covered call to reduce cost basis. Suggest selling covered calls on available shares at the $5.00 strike (nearest OTM) if IVR recovers above 20%.
+
 - **2026-07-13**: **[URGENT — Engineering]** Fix the FJET CSP candidate loop: add quarantine-status check to the **wheel candidate generator** (upstream of risk_gate), not just the gate itself. Target: zero blocked-CSP log entries for quarantined tickers. This is generating ~320 wasted cycles/day.
 
 - **2026-07-10**: **[CRITICAL — Engineering] Fix FJET CSP signal loop:** The signal generator must check the quarantine list *before* generating a CSP candidate signal for FJET. Add a pre-filter step: `if ticker in QUARANTINE_LIST: skip signal generation`. This eliminates ~170 wasted risk_gate evaluations per session.
