@@ -150,7 +150,16 @@ def snapshot_all_tickers(settings=None, alpaca_headers: dict = None) -> dict:
     Returns dict of {ticker: iv_value}.
     """
     cfg = settings or cfg_module.load()
-    tickers = list(set(cfg.wheel.tickers))
+    tickers = set(cfg.wheel.tickers)
+    # Signal-promoted tickers must be snapshotted too, or promotion is inert: the
+    # IV gate is hard, so a name with no history can never trade no matter how many
+    # policy signals name it. Promotion's whole purpose is to start this clock.
+    try:
+        from execution.dynamic_universe import active as _promoted
+        tickers |= set(_promoted())
+    except Exception as e:
+        print(f"[IV] signal-candidate lookup failed ({e})")
+    tickers = list(tickers)
 
     if alpaca_headers is None:
         alpaca_headers = {

@@ -522,7 +522,19 @@ class WheelStrategy:
         That is how a GEO CSP at IV rank 20% collecting $23 got filled in a week when
         AVAV sat at IV rank 100%: GEO simply appeared earlier in the list.
         """
-        candidates = [t for t in self.cfg.wheel.tickers
+        universe = list(self.cfg.wheel.tickers)
+        # Signal-promoted names (policy monitor) join the candidate set but clear
+        # every gate exactly like a configured ticker — see execution/dynamic_universe.
+        if getattr(self.cfg.wheel, "use_signal_candidates", False):
+            try:
+                from execution.dynamic_universe import active as _promoted
+                for ticker in _promoted(exclude=set(universe) | self._quarantined):
+                    universe.append(ticker)
+                    self._positions.setdefault(ticker, WheelPosition(ticker=ticker, stage=0))
+            except Exception as e:
+                print(f"[WHEEL] signal-candidate lookup failed ({e})")
+
+        candidates = [t for t in universe
                       if t not in self._quarantined and self._positions[t].stage == 0]
         self._report_untradeable_universe()
 

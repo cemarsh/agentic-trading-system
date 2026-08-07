@@ -32,6 +32,7 @@ from execution.regime_detector import RegimeDetector
 from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
+from execution.dynamic_universe import promote as promote_candidates
 from execution.guards import Cooldown, has_acted, mark_acted
 from execution.weekly_journal import weekly_wrapup
 from execution.position_manager import PositionManager
@@ -820,6 +821,32 @@ def run(mode: str):
                     policy_feed_ok = True
                     if policy_signals:
                         print(f"[POLICY] {len(policy_signals)} new signal(s) detected and logged")
+                        # Promote actionable-tier signal tickers into the wheel's
+                        # candidate universe. They start accruing IV history now and
+                        # become eligible only once they clear every existing gate.
+                        if getattr(cfg.wheel, "use_signal_candidates", False):
+                            actionable = getattr(
+                                getattr(cfg, "signal_convergence", None),
+                                "policy_tiers_actionable", [1, 2]) or [1, 2]
+                            for sig in policy_signals:
+                                if getattr(sig, "level", 99) not in actionable:
+                                    continue
+                                added = promote_candidates(
+                                    getattr(sig, "tickers", []) or [],
+                                    source=f"policy L{sig.level}",
+                                    reason=getattr(sig, "headline", "")[:200],
+                                    exclude=set(cfg.wheel.tickers) | risk_gate.quarantined,
+                                )
+                                if added:
+                                    msg = (f"[UNIVERSE] promoted {', '.join(added)} from "
+                                           f"policy L{sig.level} — now tracked for IV history; "
+                                           f"tradeable once gates pass")
+                                    print(msg)
+                                    log_insight(source="policy", category="decision",
+                                                insight=msg,
+                                                metadata={"tickers": added,
+                                                          "level": sig.level,
+                                                          "headline": getattr(sig, "headline", "")[:200]})
                         for sig in policy_signals:
                             log_insight(
                                 source="policy",

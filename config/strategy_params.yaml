@@ -68,48 +68,88 @@ signal_convergence:
   notebooklm_min_conviction: 7      # Minimum NLM conviction for convergence
 
 wheel:
+  # ============================================================
+  # UNIVERSE REBUILD (2026-08-07) — sized to the account, not to ambition.
+  #
+  # A CSP needs strike x 100 of collateral. Against $86k equity the 15% per-trade
+  # cap is $12,870, so any underlying above ~$137 cannot be wheeled with even ONE
+  # contract. Eleven of the twenty names were in that state (CAT needed $80,550)
+  # and simply never traded — silently, with no order and no explanation.
+  #
+  # The parked list below keeps them (and their rationale) recoverable: restore a
+  # name when equity supports it, or when its price comes back into range. They
+  # stay in risk.sector_map so any equity still held keeps counting against caps.
+  #
+  # NOTE: added names start with ZERO IV history and the IV gate is hard, so they
+  # cannot trade until iv_tracker accrues MIN_HISTORY_DAYS (15) of snapshots —
+  # roughly three trading weeks from 2026-08-10. This is a medium-term change.
+  # ============================================================
   tickers:
     # === DEFENSE / AI (Tier 1) ===
     - "SHLD"   # Defense Tech ETF — full basket, lowest risk
-    - "RTX"    # Raytheon — $218B backlog. CLOSE before Apr 25 earnings
-    - "AVAV"   # AeroVironment — Year of the Drones, $874M contracts
-    - "PLTR"   # Palantir — AI battlespace. 2% MAX (valuation risk)
     - "LDOS"   # Leidos — steady gov contractor
-    # === ENERGY DOMINANCE (Tier 2) ===
-    - "XOM"    # ExxonMobil — lagging oil rally, Hormuz disruption
-    - "CVX"    # Chevron — same thesis
-    - "CCJ"    # Cameco — uranium, nuclear fuel chain
+    - "KTOS"   # Drone autonomy, Skyborg program, DoD pipeline
+    - "RKLB"   # SpaceX competitor, Space Force contracts
+    # === SPACE GROWTH (Tier 1b) — high IV, liquid chains, own correlation bucket ===
+    - "LUNR"   # Intuitive Machines — lunar lander contracts; bid $1.07 vs $0.15 floor
+    - "ASTS"   # AST SpaceMobile — direct-to-cell constellation; bid $3.53 vs $0.54 floor
     # === NUCLEAR RENAISSANCE (Tier 3) ===
-    - "CEG"    # Constellation Energy — largest US nuclear fleet, +Calpine deal
-    - "VST"    # Vistra — 20yr power purchase agreements, 6.6GW expansion
+    - "CCJ"    # Cameco — uranium, nuclear fuel chain
+    - "OKLO"   # Oklo — SMR buildout; bid $1.86 vs $0.36 floor
+    - "SMR"    # NuScale Power — first NRC-certified SMR design
+    - "UUUU"   # Energy Fuels — US uranium + rare earth processing
+    - "NNE"    # Nano Nuclear Energy — microreactor development
     # === CRITICAL MINERALS (Tier 4) ===
     - "MP"     # MP Materials — only active US rare earth mine, 15% gov stake
     - "ALB"    # Albemarle — lithium, critical minerals
-    # === DOMESTIC MANUFACTURING / RESHORING (Tier 5) ===
-    - "CAT"    # Caterpillar — infrastructure, domestic industrial
-    - "NUE"    # Nucor — US steel, tariff beneficiary
+    - "AA"     # Alcoa — domestic aluminium, tariff beneficiary
+    - "FCX"    # Freeport-McMoRan — copper, grid/electrification demand
+    - "CLF"    # Cleveland-Cliffs — US steel, tariff beneficiary
+    # === ENERGY (Tier 2) ===
+    - "APA"    # APA Corp — only major that cleared the credit floor at this expiry
     # === BORDER SECURITY (Tier 6) ===
     - "GEO"    # GEO Group — ICE detention, $38.3B govt plan
     # === TARIFF DEFENSIVE (Tier 7) ===
     - "ABT"    # Abbott — healthcare defensive, congress buying
-    - "HD"     # Home Depot — domestic sourcing, congress double-buy
-    - "GLD"    # Gold — stagflation hedge, technical dip
-    # AVOID: AAPL (China), NVDA (export ban), SPY (trend unclear)
-    # AVOID: LMT (earnings Apr 21), NOC (ATH wide spreads)
-    # === MOMENTUM / EVENT-DRIVEN ADDITIONS (v2.0) ===
-    - "RKLB"  # SpaceX competitor, Space Force contracts, breakout candidate
-    - "KTOS"  # Drone autonomy, Skyborg program, DoD pipeline
-    # === RECENT-IPO WATCHLIST (2026-06-13) — no options yet; wheel auto-skips until puts list ===
-    - "FJET"  # Starfighters Space — equity starter held; wheel-eligible once options list
-    - "OPTX"  # Syntec Optics — equity starter held; wheel-eligible once options list
-    - "AADX"  # Applied Aerospace & Defense — equity starter held; wheel-eligible once options list
+    - "CSCO"   # Cisco — networking/AI infra; bid $2.07 vs $0.91 floor
+    # === RECENT-IPO WATCHLIST — quarantined; excluded at candidate generation ===
+    - "FJET"   # Starfighters Space — equity starter held
+    - "OPTX"   # Syntec Optics — equity starter held
+    - "AADX"   # Applied Aerospace & Defense — equity starter held
+    #
+    # --- PARKED: one contract exceeds the per-trade cap at current equity ---
+    # Restore when equity grows or price falls back under ~$137.
+    #   "CAT"   $859  -> $80,550 collateral  (infrastructure, domestic industrial)
+    #   "GLD"   $391  -> $36,700             (stagflation hedge)
+    #   "HD"    $348  -> $32,600             (domestic sourcing, congress double-buy)
+    #   "NUE"   $272  -> $25,500             (US steel, tariff beneficiary)
+    #   "CEG"   $263  -> $24,700             (largest US nuclear fleet, +Calpine)
+    #   "RTX"   $223  -> $20,900             ($218B backlog)
+    #   "LEU"   $191  -> $17,950             (uranium enrichment — validated, too big)
+    #   "CVX"   $189  -> $17,750             (oil major)
+    #   "AVAV"  $187  -> $17,500             (drones — IV rank 100%, the painful one)
+    #   "BWXT"  $170  -> $15,950             (naval nuclear — validated, too big)
+    #   "PLTR"  $172  -> $14,700             (AI battlespace; also no puts at 2wk expiry)
+    #   "XOM"   $155  -> $14,500             (lagging oil rally)
+    #   "VST"   $143  -> $13,350             (20yr PPAs, 6.6GW expansion)
+    # AVOID entirely: AAPL (China), NVDA (export ban), SPY (trend unclear),
+    #                 LMT/NOC (wide spreads at ATH)
   target_delta: 0.25             # Tightened from 0.30 — more conservative in volatile market
   expiration_weeks: 2            # Weeks to expiration at entry
   cc_strike_markup_pct: 2.0      # CC strike = cost_basis * (1 + this/100)
   min_premium_pct: 0.8           # Raised from 0.5 — elevated IV means we can demand more
   max_portfolio_pct_per_trade: 15.0  # Max % of equity per CSP (e.g. 15% of $100k = $15k/position)
   max_wheel_allocation_pct: 65       # Stop opening new CSPs above this % of equity in margin
-  min_iv_rank: 0.30                  # Derivatives gate: only sell CSPs when IV rank >= 30%
+  # TEMPORARY 0.30 -> 0.15 (2026-08-07). REVISIT 2026-12-01 and restore to 0.30.
+  # IV rank is computed against stored history only, and iv_history holds just
+  # 19–26 snapshot days for most tickers (48 max, first row 2026-05-28). A 30%
+  # floor against a ~1-month lookback is far stricter than the same number against
+  # the conventional 52-week range: a short window compresses the range, so a
+  # quiet month pushes almost everything toward its recent floor. That is why 12
+  # of 20 names printed IVR < 30% (several at 0–10%) while genuinely rich names
+  # existed. This lowers the bar to match the evidence available, not to take more
+  # risk — the credit floor, earnings gate and risk gate are all unchanged.
+  min_iv_rank: 0.15                  # Derivatives gate: only sell CSPs when IV rank >= 15%
   iv_gate_fail_open: false           # false = HARD gate: no IV history → no trade. Sitting in cash is allowed.
   min_credit_per_share: 0.15         # Absolute floor on CSP entry credit ($/share, from real NBBO bid)
   earnings_gate: true                # Never open a CSP whose expiry window contains an earnings date (needs FINNHUB_API_KEY; fail-open without it)
@@ -126,6 +166,13 @@ wheel:
                                      # while AVAV at IVR 100% went unfilled)
   skip_log_cooldown_minutes: 240     # Log the same (ticker, reason) skip at most this often.
                                      # Was logging every ~65s → 150–320 duplicate entries/day.
+  # Policy → execution pathway (2026-08-07). Policy monitor flagged 19 tickers in
+  # one week and produced zero orders because the wheel only ever read the list
+  # above. Signal-flagged tickers now become CANDIDATES — they still clear the IV
+  # floor, credit floor, earnings gate and risk caps, and are still sized by the
+  # same headroom math. A promoted name cannot trade until iv_tracker has accrued
+  # 15 snapshots for it. See execution/dynamic_universe.py.
+  use_signal_candidates: true
 
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
@@ -166,10 +213,16 @@ risk:
     # micro-cap does not hedge or correlate with an RTX short put. The cap still counts
     # their exposure in full — it just stops it from consuming an unrelated budget.
     space_micro:       ["FJET", "OPTX", "AADX"]
-    energy_commodity:  ["XOM", "CVX", "GLD", "NUE", "CAT"]
-    nuclear_uranium:   ["CCJ", "CEG", "VST"]
-    critical_minerals: ["MP", "ALB"]
-    defensive:         ["ABT", "HD", "GEO"]
+    # Speculative space growth names are correlated with each other (risk-on space
+    # sentiment), not with the primes — and must NOT share space_micro, whose budget
+    # FJET has already blown. Their own bucket caps the pair without either problem.
+    space_growth:      ["LUNR", "ASTS"]
+    energy_commodity:  ["XOM", "CVX", "GLD", "NUE", "CAT", "APA"]
+    nuclear_uranium:   ["CCJ", "CEG", "VST", "OKLO", "SMR", "UUUU", "NNE", "LEU"]
+    critical_minerals: ["MP", "ALB", "AA", "FCX", "CLF"]
+    defensive:         ["ABT", "HD", "GEO", "CSCO"]
+    # Parked tickers stay mapped above: they may still be held as equity, and that
+    # exposure must keep counting against its sector cap even when un-wheelable.
 
 # Live-money gates — checked in code (execution/live_readiness.py) before
 # --mode live will start. Defined now, while still on paper, so the bar

@@ -88,6 +88,7 @@ class WheelConfig:
     max_contracts_per_trade: int = 1  # hard ceiling on contracts per CSP; 1 = legacy behavior
     prioritize_by_iv_rank: bool = False  # evaluate richest-premium candidates first
     skip_log_cooldown_minutes: int = 240  # de-dupe repeated skip decisions in the log/journal
+    use_signal_candidates: bool = False   # let policy signals promote wheel candidates
 
 
 @dataclass
