@@ -12,6 +12,17 @@ hardware:
 intelligence:
   min_confidence_score: 0.72     # Minimum advisor confidence to execute (0.0–1.0)
 
+# Poll intervals for external intelligence feeds. The loop runs every ~60s, and
+# whale/policy were re-fetched on EVERY cycle — ~390 requests/day to each source.
+# That is almost certainly what earned the CapitolTrades 429 in the first place,
+# and it produced 300+ identical error lines per session. These are daily-cadence
+# disclosure sources; polling them every 60s buys nothing. Cooldowns are persisted
+# in agent_state.json so a restart loop can't reset them and resume hammering.
+feeds:
+  whale_poll_minutes: 30
+  policy_poll_minutes: 15
+  fetch_error_log_cooldown_minutes: 60   # Log a repeated fetch failure at most this often
+
 whale_watch:
   source_url: "https://www.capitoltrades.com/trades"
   politician_names:
@@ -102,6 +113,19 @@ wheel:
   iv_gate_fail_open: false           # false = HARD gate: no IV history → no trade. Sitting in cash is allowed.
   min_credit_per_share: 0.15         # Absolute floor on CSP entry credit ($/share, from real NBBO bid)
   earnings_gate: true                # Never open a CSP whose expiry window contains an earnings date (needs FINNHUB_API_KEY; fail-open without it)
+  # --- Sizing (2026-08-07) -------------------------------------------------
+  # The wheel used to submit qty=1 unconditionally, so a name whose caps allowed
+  # 4 contracts still sold 1 and left 75% of its authorized capacity unused. The
+  # book sat at 13.8% allocation against a 65% budget. Sizing now fills to the
+  # SMALLEST of: per-trade cap, sector headroom, total allocation headroom, and
+  # this hard contract ceiling. No risk limit is loosened — the same caps bind,
+  # they just stop being under-used.
+  max_contracts_per_trade: 4         # Hard ceiling per CSP regardless of what the caps allow
+  prioritize_by_iv_rank: true        # Evaluate richest-premium names FIRST so scarce collateral
+                                     # goes to the best premium (GEO at IVR 20% was taking capital
+                                     # while AVAV at IVR 100% went unfilled)
+  skip_log_cooldown_minutes: 240     # Log the same (ticker, reason) skip at most this often.
+                                     # Was logging every ~65s → 150–320 duplicate entries/day.
 
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
@@ -133,7 +157,15 @@ risk:
   sector_cap_pct: 20.0               # Max % of equity in one correlated sector (equity value + CSP collateral)
   deadman_cancel_orders: true        # Stale heartbeat during market hours → watchdog cancels all open orders
   sector_map:                        # Correlated-exposure buckets; unmapped tickers get only the position cap
-    defense_aerospace: ["SHLD", "RTX", "AVAV", "PLTR", "LDOS", "KTOS", "RKLB", "FJET", "OPTX", "AADX"]
+    defense_aerospace: ["SHLD", "RTX", "AVAV", "PLTR", "LDOS", "KTOS", "RKLB"]
+    # Speculative IPO micro-caps get their OWN bucket. They were in defense_aerospace,
+    # where FJET's dead $18.1k equity position (21.1% of equity) single-handedly put the
+    # bucket over the 20% cap and hard-blocked CSPs on all 7 defense primes for weeks —
+    # including AVAV at IV rank 100%, the journal's top-flagged missed trade. These names
+    # are a correlated speculative cluster, not defense primes: a Starfighters Space
+    # micro-cap does not hedge or correlate with an RTX short put. The cap still counts
+    # their exposure in full — it just stops it from consuming an unrelated budget.
+    space_micro:       ["FJET", "OPTX", "AADX"]
     energy_commodity:  ["XOM", "CVX", "GLD", "NUE", "CAT"]
     nuclear_uranium:   ["CCJ", "CEG", "VST"]
     critical_minerals: ["MP", "ALB"]

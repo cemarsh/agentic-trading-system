@@ -171,6 +171,27 @@ class RiskGate:
                 )
         return True, "ok"
 
+    def collateral_headroom(self, ticker: str) -> float:
+        """Dollars of NEW short-put collateral `ticker` can still take on before it
+        trips a cap. Returns 0.0 when blocked outright (quarantined / unsynced).
+
+        This is the sizing counterpart to check_option_collateral(): that answers
+        "may I?", this answers "how much?". The wheel needs the second question to
+        size a multi-contract order, otherwise it can only ever ask about a fixed
+        quantity and settle for one contract.
+        """
+        ticker = ticker.upper()
+        if ticker in self.quarantined:
+            return 0.0
+        if not self._synced or self._equity <= 0:
+            return 0.0
+        sector = self._sector_of.get(ticker)
+        if not sector:
+            # Unmapped tickers carry no sector budget — only the caller's per-trade cap.
+            return float("inf")
+        sector_cap = self._equity * self.sector_cap_pct / 100.0
+        return max(0.0, sector_cap - self._sector_exposure.get(sector, 0.0))
+
     def record_fill(self, ticker: str, added_exposure: float) -> None:
         """Optimistically add just-submitted exposure so multiple orders in the SAME
         cycle can't each pass a cap that only fits one of them."""
