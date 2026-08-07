@@ -231,8 +231,11 @@ same two findings repeated almost daily and never actioned. Root-caused the whol
 - [x] **DoD source repointed** — defense.gov 403s everything (Akamai); department rebranded to war.gov. Now on the war.gov RSS Contracts channel (`ContentType=400`).
 - [x] **FJET share-lock mystery closed** — the 4,261 "locked" shares are our own resting GTC sell @ $5.71 (the breakeven order). Decision: keep it, write no CCs (a CC at/above breakeven collects ~nothing; below it caps the exit).
 
+**Tracked in Notion:** [New Work — Agentic Trading System v2.2](https://app.notion.com/p/3b5ce64fe31f8170baacd31dce6f81f3?pvs=204) — same to-dos with the Monday verification checklist and dated follow-ups.
+
 **Open / next:**
-- [ ] **Monday 08-10 open — verify the throughput fix live.** Expect ~6 contracts across ALB/RKLB/GEO. Confirm sizing >1 contract, IV-ranked ordering, and that skip-log volume collapses.
+- [ ] **Monday 08-10 09:30 ET — verify the throughput fix live.** Expect ~6 contracts across ALB/RKLB/GEO. Confirm sizing >1 contract, IV-ranked ordering, and that skip-log volume collapses. Also confirm feed backoff (whale 30min / policy 15min) now that market hours exercise that branch.
+  `ssh workstation "journalctl -u trading --since today | grep -E 'SELL CSP|WHEEL|RISK'"`
 - [ ] **~3 weeks (from 08-10) — the 11 new tickers become eligible** once iv_tracker accrues `MIN_HISTORY_DAYS` (15) of snapshots. Nothing to do but watch; they are hard-gated until then.
 - [ ] **Revisit `min_iv_rank` 0.15 → 0.30 on 2026-12-01** once ~6 months of IV history exists.
 - [ ] **USASpending.gov awards API** — the war.gov contracts feed is healthy but title-only ("Contracts for Aug. 7, 2026"); award bodies naming companies are on Akamai-blocked article pages. This is the real fix for contract→ticker signal (already Phase 2).
