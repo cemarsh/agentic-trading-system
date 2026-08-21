@@ -240,3 +240,75 @@ same two findings repeated almost daily and never actioned. Root-caused the whol
 - [ ] **Revisit `min_iv_rank` 0.15 → 0.30 on 2026-12-01** once ~6 months of IV history exists.
 - [ ] **USASpending.gov awards API** — the war.gov contracts feed is healthy but title-only ("Contracts for Aug. 7, 2026"); award bodies naming companies are on Akamai-blocked article pages. This is the real fix for contract→ticker signal (already Phase 2).
 - [ ] Consider IV percentile (or a longer provider-sourced lookback) instead of short-window IV rank.
+
+## 2026-08-21 — v2.2 verification closed + the reporting tier that was missing
+
+Closed both open items from 08-07, then built the report layer that answers "is this
+working" rather than "what happened today". Deployed HEAD `f655a6b`, 92 tests green.
+
+**Verification of the 08-07 throughput fix — PASSED, but the check itself was broken:**
+- [x] **The Monday 08-10 verification command in the last section does not work.** It greps
+  journalctl for `SELL CSP`, but that string is an *insight* payload written to
+  `logs/insights/*.jsonl` by `log_insight()` — it is never emitted as a systemd log line.
+  The grep returns zero on a perfectly healthy system. Read the insight files instead:
+  `ssh workstation 'cd ~/projects/trading && grep -c "SELL CSP" logs/insights/2026-08-*.jsonl'`
+- [x] **The fix itself worked.** CSP opens per day from 08-10: 4, 2, 1, 2, 1, 5, 0, 2, 1, 5 —
+  against 1 contract per cycle before. Sizing >1 confirmed, IV-rank ordering confirmed,
+  skip-log volume down from 150–320/day to ~25/day/ticker.
+- [x] **The 11 new tickers are on track, not stuck.** They hold 9–10 snapshots against
+  `MIN_HISTORY_DAYS` 15. The 08-07 note said "~3 weeks" but the gate counts *trading* days,
+  so eligibility lands ~2026-08-28, not 08-21. Nothing to fix; `--rank-all` shows
+  INSUFFICIENT_DATA/SKIP for all 11 as designed.
+
+**What the verification actually surfaced — throughput was never the real problem:**
+
+The engine is mechanically healthy and losing money. Trailing 3 months: equity
+$100,037 → $84,438, **−$15,599 (−15.59%)**, max drawdown 16.79%, 55 closed trades,
+win rate 25.5%, **profit factor 0.23**, expectancy −$147.91/trade. 79.8% of capital
+($66,924) sits idle while the deployed 36.4% loses. KTOS alone is −$4,005 across 0/6 wins.
+Fixing throughput made the system trade more of a negative-expectancy strategy.
+
+**New: the report tier above weekly** (`execution/performance.py`, `execution/period_reports.py`)
+- [x] **`performance.py`** — deterministic metrics, no LLM: equity curve (start/end/peak/trough
+  + max drawdown, sliced locally since Alpaca only accepts coarse periods), closed-trade stats
+  from `decision_logic` (win rate, profit factor, expectancy), and capital deployment counting
+  short-put collateral as `strike × 100 × qty` the way the sector cap does. Renders the
+  **Needle Movement** block now embedded at the top of every period report.
+- [x] **Monthly review** (`journal/monthly/YYYY-MM.md`) — rolls the month's weeklies into what
+  changed / what did NOT change / lessons / what's next. The "did NOT change" section is the
+  point: it counts how many weeks a finding recurred unactioned.
+- [x] **Quarterly review** (`journal/quarterly/<label>.md`) — progress / negatives / structural
+  problems / priorities. Reads the monthly tier when ≥2 documents exist, else falls back to
+  weeklies; the first quarterly always takes the fallback path. `--trailing` covers the last
+  3 months from an arbitrary day instead of a calendar quarter.
+- [x] Both prompts are required to separate **engineering progress from financial progress** —
+  conflating them is what made a losing quarter read as a stalled one.
+- [x] Scheduler: monthly on the 1st pre-market, quarterly on the 1st of Jan/Apr/Jul/Oct, each
+  reporting the period that just *ended* (dedup keys `YYYY-MM` / `YYYY-Qn`), outside the
+  market-open branch per the `run_scheduled_tasks` invariant.
+- [x] Seeded `journal/monthly/2026-06.md` and `2026-07.md` so the next quarterly rolls up
+  monthlies rather than weeklies.
+
+**Open / next — ranked by the quarterly's own priority order:**
+- [ ] **FJET has no exit architecture, and the gap is generic to equity longs.** −$8,637
+  unrealized, deteriorated six consecutive weeks with zero automated response. `position_manager`
+  enforces stops on options but has no `max_equity_drawdown_pct` for equity longs. Biggest
+  single line item in the quarter.
+- [ ] **The CSP stop-loss monitor is not intraday.** KTOS breached at −852% against a −250%
+  threshold, meaning the mark was checked at most once a day. Short puts on high-beta names gap
+  through the threshold between checks. Needs 30-min polling during RTH and a tighter
+  high-beta threshold.
+- [ ] **The wheel does not consult `position_ledger` before generating candidates** — it reads
+  the universe list, so it opens into a book that is already stressed (same-day open/close on
+  ALB and XOM). v2.1 shipped the ledger; the wheel was never wired to it.
+- [ ] **No minimum expected value on entry.** CSPs written for $0.05–$0.23/share premium then
+  stopped out for multiples of the credit. Needs a `premium / max_loss_at_stop` floor and an
+  OTM% floor scaled to realized vol.
+- [ ] **Policy signals still have no execution pathway** — 90+ signals at conviction 0.85 over
+  three weeks, zero orders. `status: SIGNAL` is a terminal state. The sector classifier also
+  mis-maps aviation/agricultural/automotive/chemical policy to AI-infra tickers (VRT, MSFT,
+  ORCL, PLTR, SMCI) — flagged in five separate weeklies, never remediated. Fix the classifier
+  before wiring execution, not after.
+- [ ] **Confirm AVAV/VST/CAT/CEG are actually reachable candidates.** All four showed IVR 51–100%
+  for weeks and generated no orders; `--rank-all` no longer lists several of them at all, which
+  suggests the snapshot set and the wheel universe have diverged.
