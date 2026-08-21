@@ -398,6 +398,17 @@ def weekly_wrapup(
     # Build MTD report (always deterministic)
     mtd_section = build_mtd_report(mtd, month_label)
 
+    # Needle Movement — the week's hard numbers, stated before the narrative gets to
+    # interpret them. Deterministic; degrades to a partial block if a source is down.
+    try:
+        from execution.performance import collect, build_needle_section
+        needle_section = build_needle_section(
+            collect(alpaca_client, cfg, mon, fri), f"Week {week_label}"
+        )
+    except Exception as e:
+        print(f"[WEEKLY] needle section failed: {e}")
+        needle_section = ""
+
     # Module attribution + conviction calibration (deterministic)
     try:
         from execution.attribution import build_report as build_attribution
@@ -441,7 +452,8 @@ def weekly_wrapup(
     extras = "".join(
         divider + section for section in (attribution_section, proposals_section) if section
     )
-    full = header + body + divider + mtd_section + extras + footer
+    lead = (needle_section + divider) if needle_section else ""
+    full = header + lead + body + divider + mtd_section + extras + footer
 
     WEEKLY_DIR.mkdir(parents=True, exist_ok=True)
     path = WEEKLY_DIR / f"{week_label}.md"

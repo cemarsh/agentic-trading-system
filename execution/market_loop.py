@@ -362,6 +362,50 @@ def run_scheduled_tasks(
         except Exception as we:
             print(f"[WEEKLY] Wrap-up error: {we}")
 
+    # --- Monthly review (1st of month, pre-market) ---
+    # Reports the month that just ENDED, not the one starting today — so on Sep 1 we
+    # review August. Dedup key is the reported month ("YYYY-MM"), not today's.
+    prev_month_ref = now_et.date().replace(day=1) - timedelta(days=1)
+    prev_month_key = prev_month_ref.strftime("%Y-%m")
+    monthly_review_due = (
+        is_first_premarket and state.get("last_monthly_review") != prev_month_key
+    )
+    if monthly_review_due and notifier:
+        try:
+            from execution.period_reports import monthly_wrapup
+            monthly_wrapup(
+                ref_date=prev_month_ref, alpaca_client=alpaca,
+                regime=current_regime, notifier=notifier, settings=cfg,
+            )
+            state["last_monthly_review"] = prev_month_key
+            save_state(state)
+            print(f"[MONTHLY] Review complete for {prev_month_key}")
+        except Exception as mre:
+            print(f"[MONTHLY] Review error: {mre}")
+
+    # --- Quarterly review (1st of Jan/Apr/Jul/Oct, pre-market) ---
+    # Reviews the quarter that just ended; prev_month_ref lands inside it.
+    quarter_start_month = now_et.month in (1, 4, 7, 10)
+    prev_quarter_key = (
+        f"{prev_month_ref.year}-Q{(prev_month_ref.month - 1) // 3 + 1}"
+    )
+    quarterly_review_due = (
+        is_first_premarket and quarter_start_month
+        and state.get("last_quarterly_review") != prev_quarter_key
+    )
+    if quarterly_review_due and notifier:
+        try:
+            from execution.period_reports import quarterly_wrapup
+            quarterly_wrapup(
+                ref_date=prev_month_ref, alpaca_client=alpaca,
+                regime=current_regime, notifier=notifier, settings=cfg,
+            )
+            state["last_quarterly_review"] = prev_quarter_key
+            save_state(state)
+            print(f"[QUARTERLY] Review complete for {prev_quarter_key}")
+        except Exception as qre:
+            print(f"[QUARTERLY] Review error: {qre}")
+
     # --- IV snapshot (Mon–Fri, 10:00–10:59 AM ET, once per day) ---
     # Must run DURING market hours: Alpaca's indicative options feed is RTH-only,
     # so the old 8:30 pre-market window returned "unavailable" for most tickers
