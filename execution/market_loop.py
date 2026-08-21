@@ -362,6 +362,33 @@ def run_scheduled_tasks(
         except Exception as we:
             print(f"[WEEKLY] Wrap-up error: {we}")
 
+    # --- Universe screen (Mondays, 11:00 AM ET, once per week) ---
+    # Deliberately mid-morning and NOT pre-market: the screen's spread test reads live
+    # option NBBOs, and outside RTH those go stale and wide enough to reject the most
+    # liquid names in the market as illiquid. run_screen() refuses to run when the
+    # clock says closed; this trigger keeps it from being asked in the first place.
+    is_screen_window = now_et.weekday() == 0 and now_et.hour == 11
+    screen_due = is_screen_window and state.get("last_universe_screen") != today_et
+    if screen_due:
+        try:
+            from execution.universe_screen import run_screen, format_report
+            res = run_screen(alpaca_client=alpaca, settings=cfg, promote=True)
+            state["last_universe_screen"] = today_et
+            save_state(state)
+            if res.get("passed"):
+                print(f"[SCREEN] {len(res['passed'])} candidate(s) passed")
+                log_insight(
+                    source="system", category="decision",
+                    insight=f"universe screen: {len(res['passed'])} passed, "
+                            f"{len(res['rejected'])} rejected",
+                    metadata={"passed": [v["ticker"] for v in res["passed"]]},
+                )
+                if notifier:
+                    notifier.send(subject="[UNIVERSE] Weekly screen",
+                                  body=format_report(res, cfg))
+        except Exception as se:
+            print(f"[SCREEN] universe screen error: {se}")
+
     # --- Monthly review (1st of month, pre-market) ---
     # Reports the month that just ENDED, not the one starting today — so on Sep 1 we
     # review August. Dedup key is the reported month ("YYYY-MM"), not today's.

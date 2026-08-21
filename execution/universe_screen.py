@@ -219,7 +219,8 @@ def build_book_returns(alpaca_client, cfg, positions: list) -> Dict[str, List[fl
     return series
 
 
-def run_screen(alpaca_client=None, settings=None, promote: bool = False) -> dict:
+def run_screen(alpaca_client=None, settings=None, promote: bool = False,
+               allow_closed: bool = False) -> dict:
     """Screen the seed pool. Returns {'passed': [...], 'rejected': [...]}"""
     cfg = settings or cfg_module.load()
     u = getattr(cfg, "universe", None)
@@ -230,6 +231,22 @@ def run_screen(alpaca_client=None, settings=None, promote: bool = False) -> dict
     if alpaca_client is None:
         from execution.alpaca_client import AlpacaClient
         alpaca_client = AlpacaClient(settings=cfg)
+
+    # The spread test is meaningless outside regular trading hours. Options quotes go
+    # stale and wide at the close, and the screen then rejects the most liquid names in
+    # the market: a first run at 17:40 ET scored KO at 55%, T at 186% and SBUX at 183%,
+    # and passed 1 of 28. Those are artifacts, not illiquidity. Refuse rather than
+    # produce a confident, wrong answer — a screen that silently rejects good names
+    # looks identical to a screen that is working.
+    if not allow_closed:
+        try:
+            if not (alpaca_client.get_clock() or {}).get("is_open"):
+                print("[SCREEN] market is CLOSED — option spreads are stale and this "
+                      "screen would reject liquid names as illiquid. Re-run during RTH, "
+                      "or pass allow_closed=True to see the non-spread checks only.")
+                return {"passed": [], "rejected": [], "skipped": "market closed"}
+        except Exception as e:
+            print(f"[SCREEN] could not confirm market hours ({e}) — proceeding")
 
     try:
         account = alpaca_client.get_account() or {}
@@ -293,12 +310,15 @@ def main():
     ap.add_argument("--screen", action="store_true", help="run the screen and report")
     ap.add_argument("--promote", action="store_true",
                     help="promote passing names into the dynamic universe (starts the IV clock)")
+    ap.add_argument("--allow-closed", action="store_true",
+                    help="run outside RTH; spread results will be stale and unreliable")
     args = ap.parse_args()
     if not args.screen:
         ap.error("pass --screen")
 
     cfg = cfg_module.load()
-    result = run_screen(settings=cfg, promote=args.promote)
+    result = run_screen(settings=cfg, promote=args.promote,
+                        allow_closed=args.allow_closed)
     print(format_report(result, cfg))
 
 
