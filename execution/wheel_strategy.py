@@ -317,16 +317,40 @@ class WheelStrategy:
             days_ahead += 7
         return (target + timedelta(days=days_ahead)).isoformat()
 
-    def select_csp_strike(self, ticker: str, current_price: float) -> float:
+    def select_csp_strike(self, ticker: str, current_price: float,
+                          dte: Optional[int] = None) -> float:
         """
-        Approximate strike at target delta.
-        Without full options chain pricing, uses delta ≈ 0.30 → ~5-7% OTM.
-        A real implementation should use the options chain from Alpaca.
+        Strike for a new CSP: the FURTHER of the fixed-percentage target and the
+        volatility-scaled floor.
+
+        The fixed rule alone (target_delta x 0.15 + 0.90, ~6.25% OTM at 0.25 delta)
+        ignores the underlying entirely, so the same distance is conservative on GEO
+        and inside a normal fortnight on RKLB. Measured 2026-08-21 against a 14-day
+        expiry: that strike sat inside a 1-sigma move on KTOS, RKLB, CCJ and ABT —
+        four of five sampled names, including the two largest losers of the quarter.
+
+        The selector has to know about vol for the same reason the gate does. If only
+        the gate did, it would reject nearly everything the selector proposed and the
+        system would simply stop trading — replacing a losing wheel with an idle one.
+        Gate 5b stays as the backstop for the drift introduced when we snap to the
+        nearest strike that actually exists.
         """
         otm_factor = self.cfg.wheel.target_delta * 0.15 + 0.90  # 0.25 delta → ~6.25% OTM
         raw = current_price * otm_factor
-        # Round to nearest $0.50
-        return round(raw * 2) / 2
+
+        vol_mult = getattr(self.cfg.wheel, "min_otm_vol_mult", 0.0) or 0.0
+        if vol_mult and dte:
+            exp_move = self._expected_move(ticker, current_price, dte)
+            if exp_move:
+                # Small buffer so rounding to the nearest $0.50 cannot land us back
+                # inside the gate we just cleared.
+                vol_strike = current_price - (vol_mult * exp_move) - 0.25
+                raw = min(raw, vol_strike)
+
+        # Round DOWN to the nearest $0.50 — rounding up would move the strike toward
+        # spot, i.e. toward the risk the vol floor exists to keep us away from.
+        import math
+        return max(0.5, math.floor(raw * 2) / 2)
 
     def open_csp(self, ticker: str, ivr: Optional[float] = None) -> Optional[dict]:
         """Sell a Cash Secured Put for the given ticker.
@@ -401,7 +425,11 @@ class WheelStrategy:
             return None
         current_price = bars[-1]["c"]
 
-        strike = self.select_csp_strike(ticker, current_price)
+        # Expiry first: the vol-scaled strike floor needs the holding period, since a
+        # 1-sigma move scales with sqrt(DTE).
+        expiry = self.target_expiry()
+        dte = max(1, (date.fromisoformat(expiry) - date.today()).days)
+        strike = self.select_csp_strike(ticker, current_price, dte=dte)
 
         # Guard 2: per-trade size limit (CSP collateral = strike × 100 shares).
         # Cheap pre-check on the ESTIMATED strike so we don't pull an options chain
@@ -420,8 +448,6 @@ class WheelStrategy:
                            f"({self.cfg.wheel.max_portfolio_pct_per_trade}% of ${equity:,.0f}) — "
                            f"underlying too expensive for this account, skipping")
                 return None
-
-        expiry = self.target_expiry()
 
         # Guard 3: earnings gate — a short put spanning an earnings date is a binary
         # event bet, not premium selling. Fail-open only when the calendar is
@@ -495,7 +521,6 @@ class WheelStrategy:
         otm_mult = getattr(self.cfg.wheel, "min_otm_vol_mult", 0.0) or 0.0
         credit_mult = getattr(self.cfg.wheel, "min_credit_vs_expected_move", 0.0) or 0.0
         if otm_mult or credit_mult:
-            dte = max(1, (date.fromisoformat(expiry) - date.today()).days)
             exp_move = self._expected_move(ticker, current_price, dte)
             if exp_move and exp_move > 0:
                 otm_distance = current_price - actual_strike

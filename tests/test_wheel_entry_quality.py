@@ -256,3 +256,49 @@ def test_ev_gates_disabled_at_zero():
     ws._vol_cache["CCJ"] = 0.05          # would fail both gates if they were on
 
     assert ws.open_csp("CCJ") is not None
+
+
+# ---------------------------------------------------------------------------
+# Vol-aware strike selection — the selector must agree with the gate
+# ---------------------------------------------------------------------------
+
+def test_strike_selector_widens_for_a_volatile_name():
+    """Without this the gate rejects what the selector proposes and nothing trades."""
+    ws = WheelStrategy(settings=_cfg(otm_mult=1.0), alpaca_client=MagicMock())
+    ws._vol_cache["RKLB"] = 0.0617                    # 14d 1-sigma on $73.39 ~ $16.94
+
+    fixed_only = ws.select_csp_strike("RKLB", 73.39)             # no dte -> old behaviour
+    vol_aware = ws.select_csp_strike("RKLB", 73.39, dte=14)
+    assert fixed_only > vol_aware                                # vol pushed it further out
+    assert vol_aware <= 73.39 - 16.94                            # at least 1 sigma OTM
+
+
+def test_strike_selector_unchanged_for_a_quiet_name():
+    """GEO already cleared 1 sigma at the fixed distance; don't move it."""
+    ws = WheelStrategy(settings=_cfg(otm_mult=1.0), alpaca_client=MagicMock())
+    ws._vol_cache["GEO"] = 0.0162                     # 14d 1-sigma on $31.94 ~ $1.93
+    assert ws.select_csp_strike("GEO", 31.94, dte=14) == ws.select_csp_strike("GEO", 31.94)
+
+
+def test_strike_selector_rounds_down_not_nearest():
+    """Rounding up moves the strike toward spot — toward the risk the floor avoids."""
+    ws = WheelStrategy(settings=_cfg(otm_mult=0.0), alpaca_client=MagicMock())
+    strike = ws.select_csp_strike("X", 100.0)         # 100 * 0.9375 = 93.75
+    assert strike == 93.5
+
+
+def test_strike_selector_ignores_vol_when_unavailable():
+    ws = WheelStrategy(settings=_cfg(otm_mult=1.0), alpaca_client=MagicMock())
+    ws._vol_cache["X"] = None
+    assert ws.select_csp_strike("X", 100.0, dte=14) == ws.select_csp_strike("X", 100.0)
+
+
+def test_selector_output_clears_its_own_gate():
+    """End-to-end: the strike the selector picks must survive gate 5b."""
+    ws = WheelStrategy(settings=_cfg(otm_mult=1.0), alpaca_client=MagicMock())
+    for ticker, spot, vol in [("KTOS", 56.24, 0.0376), ("RKLB", 73.39, 0.0617),
+                              ("CCJ", 95.93, 0.0252), ("ABT", 113.98, 0.0251)]:
+        ws._vol_cache[ticker] = vol
+        strike = ws.select_csp_strike(ticker, spot, dte=14)
+        exp_move = ws._expected_move(ticker, spot, 14)
+        assert (spot - strike) >= 1.0 * exp_move, (ticker, spot, strike, exp_move)
