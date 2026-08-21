@@ -312,3 +312,90 @@ Fixing throughput made the system trade more of a negative-expectancy strategy.
 - [ ] **Confirm AVAV/VST/CAT/CEG are actually reachable candidates.** All four showed IVR 51–100%
   for weeks and generated no orders; `--rank-all` no longer lists several of them at all, which
   suggests the snapshot set and the wheel universe have diverged.
+
+## 2026-08-21 (later) — the five structural fixes from the quarterly
+
+Implemented every item the quarterly ranked. Deployed HEAD `18fff51`, 170 tests green
+(was 92). Two of the quarterly's own diagnoses were wrong when checked against the code;
+both are corrected below, because the wrong mechanism would have produced the wrong fix.
+
+**1. Equity longs had no exit — `protection.max_equity_loss_pct` 25%**
+- [x] `no_auto_manage` (2026-06-16) stopped the ladder averaging into FJET by dropping those
+  tickers out of `sync_positions()` entirely — which also removed their trailing stop, leaving
+  **no exit at all**. That is why FJET fell six straight weeks to −32% unattended.
+- [x] `check_catastrophic_loss()` reads **live broker positions**, so quarantined names cannot
+  hide from it. Long equity only; fires once per ticker via `guards.acted_once`.
+- [x] It cancels our own resting sells first. Shares committed to a working order are not
+  available, so the liquidation would have been rejected and *appeared* to fire — FJET has
+  4,261 of 4,570 shares locked by the GTC breakeven sell.
+
+**2. The stop-loss was never "once daily" — stale close orders muted their own position**
+- [x] The quarterly inferred a daily poll. `run_cycle()` runs every 60s. The real mechanism:
+  the stop **did** fire at −250%, its marketable limit at `ask × 1.03` did not fill, and the
+  "already has a working order" guard then skipped that symbol every cycle for the rest of the
+  day (TIF is `day`). A resting close order silently muted the position and the loss ran to −852%.
+- [x] Working orders are now aged. Past `stale_order_seconds` (180) the order is cancelled and
+  re-priced, crossing the spread `reprice_aggression` harder each time, bounded by
+  `max_reprice_attempts` (3) and then alerting instead of chasing forever.
+- [x] Added `AlpacaClient.cancel_order()` — only `cancel_all_orders()` existed.
+
+**3. The wheel never consulted the book — `max_book_loss_pct` 15% + `skip_losing_underlying`**
+- [x] It read the universe list and nothing else, so it opened into an already-bleeding book.
+  v2.1 shipped `position_ledger` for exactly this and the wheel was never wired to it.
+- [x] Book health is a cycle-level gate (a stressed book is a property of the book, not of a
+  ticker); the losing-underlying check is per-name. Both fed from live positions.
+
+**4. No expected value on entry — and the quarterly's proposed formula was a no-op**
+- [x] It proposed `credit / max_loss_at_stop`. With a *percentage* stop that is
+  `C / (2.5 × C)` = **0.4 for every trade ever placed** — it can never reject anything.
+- [x] Replaced with two gates measured against the underlying's own 1-sigma move over the
+  holding period (`spot × daily_vol × √DTE`): `min_otm_vol_mult` 1.0 and
+  `min_credit_vs_expected_move` 0.15. Both **fail open** on unavailable vol so they cannot
+  become a second silent IV gate.
+- [x] **`select_csp_strike()` is now vol-aware too.** Shipping only the gate would have had the
+  selector propose the same too-close strike forever and the gate reject it — the wheel would
+  have stopped trading entirely. Measured live: the old fixed ~6.25% strike sat INSIDE 1 sigma
+  on KTOS, RKLB, CCJ and ABT (4 of 5 sampled, both big losers among them).
+  New vs old OTM: RKLB 6.0%→23.7%, KTOS 6.7%→14.7%, MP 6.0%→13.3%, GEO 6.1%→7.6%,
+  SHLD 6.1%→6.9%. Quiet names barely move; volatile names move a lot. That is the point.
+- [x] **`_realized_vol()` shipped as a no-op first.** `get_bars()` needs an explicit `start` to
+  return >1 day on the free IEX feed (its own docstring says so); without it vol was always
+  None and both gates failed open. Caught by dry-running the gates against the live book.
+
+**5. Policy classifier matched SUBSTRINGS**
+- [x] Matching was `kw in text`. `"ai"` matched **AI**rcraft, d**ai**ry, rem**ai**n, ch**ai**n;
+  `"ice"` matched pr**ice**, serv**ice**, Off**ice**, not**ice**. That is the entire explanation
+  for aviation/agricultural/automotive/dairy headlines returning VRT/MSFT/ORCL/PLTR/SMCI —
+  logged as a mysterious "classifier artifact" in five separate weeklies.
+- [x] Now whole-word with an optional plural. Plain `\b` alone would have dropped "tariffs" for
+  keyword "tariff" and lost real signal — the fix needed a fix.
+- [x] The signal→order pathway itself already exists (`dynamic_universe`, 2026-08-07). It
+  produced zero orders because promoted names have no IV history and the gate is fail-closed —
+  working as designed, not broken. Fix the classifier first; the pathway then feeds it clean input.
+
+**FJET decision (2026-08-21):** keep the position and its GTC breakeven sell rather than
+realize −$8,420 today; write covered calls instead. Recorded in `protection.catastrophic_exempt`
+with its reasoning — anything on that list must carry a stated plan, and comes off when it ends.
+- [x] `run_cycle()` only ever called `open_csp()`. `open_cc()` was reachable **only** from
+  `handle_assignment()`, so no covered call was ever written against a holding acquired any
+  other way — the six-week "FJET CC eligible, no action" finding. `run_cycle()` now writes CCs,
+  quarantined names included: quarantine blocks new *risk*, and a call on shares already owned
+  reduces it.
+- [x] CCs size to **available** shares (FJET: 309 free → 3 contracts) and, past
+  `underwater_cc_loss_pct`, price off **spot** — a basis-derived strike is ~50% OTM and bids
+  ~$0.00, which is exactly why 08-07 concluded "write no CCs". Trade-off is explicit: the
+  spot-based strike ($4.50 vs $5.70 basis) caps recovery below cost.
+- [x] `sync_positions()` now detects short **calls**. It never did, so the CC loop would have
+  sold another one every cycle — `guards.py` repeat-without-a-record, with real orders.
+
+**Open / watch on Monday 08-24:**
+- [ ] **Expect FEWER trades, not more.** Wider strikes collect less premium, so some names will
+  now fail `min_credit_per_share` / `min_credit_vs_expected_move`. With a profit factor of 0.23,
+  trading less is the intended direction — but confirm it is not trading *zero*.
+  `ssh workstation 'cd ~/projects/trading && grep -c "SELL CSP" logs/insights/2026-08-24.jsonl'`
+- [ ] **Confirm the FJET covered call is written** — 3 contracts at ~$4.50, and confirm the
+  spot-based strike logic picked it (log line says "pricing CC off spot").
+- [ ] **Sanity-check realized vol against a second source.** ABT prints 2.51% daily (≈40%
+  annualized), which is high for Abbott and suggests the free IEX daily feed may be sparse or
+  gappy. Overestimated vol makes the OTM gate stricter and silently blocks good trades.
+- [ ] **The 11 new tickers become IV-eligible ~08-28** (15 trading days from 08-07).

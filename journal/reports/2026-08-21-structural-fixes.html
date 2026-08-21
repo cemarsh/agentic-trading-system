@@ -1,0 +1,624 @@
+<title>Five Structural Fixes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:      #F7F8FA;
+    --surface:     #FFFFFF;
+    --surface-alt: #EFF2F6;
+    --ink:         #171B22;
+    --ink-soft:    #3D4655;
+    --muted:       #5C6675;
+    --rule:        #DCE1E9;
+    --rule-soft:   #E9EDF2;
+    --accent:      #2F5D7C;
+    --accent-soft: #E3ECF3;
+    --loss:        #B03A2E;
+    --loss-soft:   #F6E5E2;
+    --gain:        #2E7D5B;
+    --gain-soft:   #E2F0E9;
+    --shadow:      0 1px 2px rgba(23, 27, 34, .05), 0 8px 24px -16px rgba(23, 27, 34, .22);
+
+    --display: "Newsreader", Georgia, "Times New Roman", serif;
+    --body:    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #12151B;
+      --surface:     #1A1F27;
+      --surface-alt: #222833;
+      --ink:         #E8ECF2;
+      --ink-soft:    #C2CAD6;
+      --muted:       #8B96A6;
+      --rule:        #2E353F;
+      --rule-soft:   #262D37;
+      --accent:      #7FB3D5;
+      --accent-soft: #1E2C38;
+      --loss:        #E08376;
+      --loss-soft:   #33211E;
+      --gain:        #6FC79E;
+      --gain-soft:   #1B2E26;
+      --shadow:      0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -16px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #12151B;
+    --surface:     #1A1F27;
+    --surface-alt: #222833;
+    --ink:         #E8ECF2;
+    --ink-soft:    #C2CAD6;
+    --muted:       #8B96A6;
+    --rule:        #2E353F;
+    --rule-soft:   #262D37;
+    --accent:      #7FB3D5;
+    --accent-soft: #1E2C38;
+    --loss:        #E08376;
+    --loss-soft:   #33211E;
+    --gain:        #6FC79E;
+    --gain-soft:   #1B2E26;
+    --shadow:      0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 20px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 830px; margin: 0 auto; }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    display: flex; flex-direction: column; gap: 18px;
+    padding: 72px 0 30px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px; font-weight: 500;
+    letter-spacing: .13em; text-transform: uppercase;
+    color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 8px 16px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(2.5rem, 6.2vw, 3.9rem);
+    font-weight: 500; line-height: 1.04;
+    letter-spacing: -.021em;
+    margin: 0; text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--display);
+    font-size: 1.235rem; line-height: 1.55;
+    color: var(--ink-soft);
+    max-width: 63ch; margin: 0;
+  }
+
+  /* ---------- scoreboard ---------- */
+  .scoreboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 30px 0 0;
+  }
+  .stat { background: var(--surface); padding: 17px 18px 15px; }
+  .stat dt {
+    font-family: var(--mono);
+    font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted);
+    margin: 0 0 7px;
+  }
+  .stat dd {
+    margin: 0;
+    font-family: var(--mono); font-weight: 600;
+    font-size: 1.42rem; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat dd span { font-size: .8rem; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+  .stat .is-loss { color: var(--loss); }
+  .stat .is-gain { color: var(--gain); }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 60px; }
+  h2 {
+    font-family: var(--display);
+    font-size: 1.86rem; font-weight: 500;
+    letter-spacing: -.014em; line-height: 1.2;
+    margin: 0 0 8px; text-wrap: balance;
+  }
+  .section-note {
+    color: var(--muted); font-size: .945rem;
+    margin: 0 0 26px; max-width: 66ch;
+  }
+  p { max-width: 68ch; }
+
+  /* ---------- correction callout ---------- */
+  .correction {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    padding: 24px 26px;
+    box-shadow: var(--shadow);
+  }
+  .correction h2 { font-size: 1.5rem; margin-bottom: 10px; }
+  .correction p { margin: 0 0 12px; }
+  .correction p:last-child { margin-bottom: 0; }
+
+  /* ---------- fix cards ---------- */
+  .fix {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    box-shadow: var(--shadow);
+    margin-bottom: 22px;
+    overflow: hidden;
+  }
+  .fix-head {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 20px 26px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .rank {
+    font-family: var(--mono); font-weight: 600;
+    font-size: .78rem; letter-spacing: .04em;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 3px 8px; flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .fix-head h3 {
+    font-family: var(--display);
+    font-size: 1.31rem; font-weight: 500;
+    letter-spacing: -.01em; line-height: 1.3;
+    margin: 0; text-wrap: balance;
+  }
+  .bands { display: flex; flex-direction: column; }
+  .band { display: grid; grid-template-columns: 116px 1fr; gap: 20px; padding: 15px 26px; }
+  .band + .band { border-top: 1px solid var(--rule-soft); }
+  .band-said  { background: var(--surface); }
+  .band-was   { background: var(--surface-alt); }
+  .band-fix   { background: var(--surface); }
+  .band-label {
+    font-family: var(--mono);
+    font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted);
+    padding-top: 4px;
+  }
+  .band-was .band-label { color: var(--loss); }
+  .band-fix .band-label { color: var(--gain); }
+  .band-body { margin: 0; font-size: .955rem; max-width: 62ch; }
+  .band-body code, .inline-code {
+    font-family: var(--mono); font-size: .87em;
+    background: var(--accent-soft); color: var(--ink);
+    padding: 1px 5px; border-radius: 2px;
+  }
+  .band-body strong { font-weight: 600; }
+  .hl { background: var(--loss-soft); color: var(--loss); font-weight: 600; padding: 0 3px; }
+
+  /* ---------- tables ---------- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .89rem; min-width: 500px; }
+  caption {
+    text-align: left; padding: 14px 18px 12px;
+    font-size: .88rem; color: var(--muted);
+    border-bottom: 1px solid var(--rule-soft);
+    max-width: 70ch;
+  }
+  th, td {
+    padding: 9px 18px; text-align: right;
+    border-bottom: 1px solid var(--rule-soft);
+    font-variant-numeric: tabular-nums;
+    font-family: var(--mono);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  thead th {
+    font-size: 10.5px; letter-spacing: .085em;
+    text-transform: uppercase; color: var(--muted);
+    font-weight: 500; white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.wide { color: var(--loss); font-weight: 600; }
+  td.same { color: var(--muted); }
+
+  /* ---------- watch list ---------- */
+  .watch { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 1px;
+           background: var(--rule); border: 1px solid var(--rule); }
+  .watch li { background: var(--surface); padding: 15px 20px; }
+  .watch b { display: block; font-weight: 600; margin-bottom: 3px; font-size: .97rem; }
+  .watch span { color: var(--ink-soft); font-size: .91rem; }
+  .watch code {
+    display: block; margin-top: 8px;
+    font-family: var(--mono); font-size: .8rem;
+    background: var(--surface-alt); color: var(--ink-soft);
+    padding: 8px 11px; overflow-x: auto; white-space: pre;
+  }
+
+  /* ---------- decision block ---------- */
+  .decision { background: var(--surface); border: 1px solid var(--rule);
+              box-shadow: var(--shadow); padding: 24px 26px; }
+  .decision h3 { font-family: var(--display); font-weight: 500; font-size: 1.24rem;
+                 margin: 0 0 12px; }
+  .decision ul { margin: 0; padding-left: 19px; }
+  .decision li { margin-bottom: 9px; max-width: 64ch; }
+  .decision li:last-child { margin-bottom: 0; }
+
+  footer {
+    margin-top: 64px; padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 11.5px;
+    letter-spacing: .05em; color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+  }
+
+  @media (max-width: 620px) {
+    .band { grid-template-columns: 1fr; gap: 5px; }
+    .masthead { padding-top: 48px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Agentic Trading System</span>
+      <span>2026-08-21</span>
+      <span>HEAD 18fff51</span>
+      <span>Paper · acct3</span>
+    </div>
+    <h1>Five Structural Fixes</h1>
+    <p class="standfirst">
+      The quarterly review found a system that was mechanically healthy and losing money.
+      These are the five root causes it ranked, all now fixed — and the two places where
+      the review's own diagnosis turned out to be wrong once checked against the code.
+    </p>
+  </header>
+
+  <dl class="scoreboard">
+    <div class="stat">
+      <dt>Quarter</dt>
+      <dd class="is-loss">−15.59<span>%</span></dd>
+    </div>
+    <div class="stat">
+      <dt>Profit factor</dt>
+      <dd class="is-loss">0.23</dd>
+    </div>
+    <div class="stat">
+      <dt>Expectancy</dt>
+      <dd class="is-loss">−$148<span>/trade</span></dd>
+    </div>
+    <div class="stat">
+      <dt>Tests</dt>
+      <dd class="is-gain">170<span> ← 92</span></dd>
+    </div>
+    <div class="stat">
+      <dt>Causes fixed</dt>
+      <dd>5<span> of 5</span></dd>
+    </div>
+  </dl>
+
+  <section>
+    <div class="correction">
+      <h2>Two diagnoses were wrong</h2>
+      <p>
+        The quarterly was written from journal narrative, not from the source. Two of its
+        five root causes did not survive contact with the code, and in both cases the wrong
+        mechanism would have produced the wrong fix — a change that looks responsive and
+        leaves the actual failure running.
+      </p>
+      <p>
+        It said the stop-loss monitor <em>ran once daily</em>. It runs every 60 seconds. The
+        real fault was elsewhere and worse: the stop fired correctly and then a resting order
+        muted the position for the rest of the day.
+      </p>
+      <p>
+        It proposed gating entries on <span class="inline-code">credit / max_loss_at_stop</span>.
+        With a percentage-based stop that ratio is <span class="inline-code">C / (2.5 × C)</span> —
+        exactly <strong>0.4 for every trade ever placed</strong>. It can never reject anything.
+        Shipping it would have added a gate that does nothing and closed the finding.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>The five causes</h2>
+    <p class="section-note">
+      Ranked by expected impact on the equity curve, in the quarterly's own order. Each card
+      reads: what the review said, what the code actually did, and what changed.
+    </p>
+
+    <article class="fix">
+      <div class="fix-head">
+        <span class="rank">01</span>
+        <h3>Equity longs had no exit at all</h3>
+      </div>
+      <div class="bands">
+        <div class="band band-said">
+          <div class="band-label">Diagnosed</div>
+          <p class="band-body">FJET left unmanaged for six consecutive weeks; no stop-loss parameter exists for equity positions.</p>
+        </div>
+        <div class="band band-was">
+          <div class="band-label">Actually</div>
+          <p class="band-body">
+            Correct, and the cause is a fix from June. <code>no_auto_manage</code> stopped the
+            ladder averaging into FJET by dropping those tickers out of
+            <code>sync_positions()</code> <strong>entirely</strong> — which also removed their
+            trailing stop. Suppressing the ladder silently suppressed the exit, so FJET fell to
+            <span class="hl">−32%</span> with nothing watching it.
+          </p>
+        </div>
+        <div class="band band-fix">
+          <div class="band-label">Fixed</div>
+          <p class="band-body">
+            A 25% loss floor that reads <strong>live broker positions</strong>, so quarantined
+            names cannot hide from it. Long equity only, fires once per ticker via
+            <code>guards.acted_once</code>. It also cancels our own resting sells first — shares
+            locked by a working order aren't available, so the liquidation would have been
+            rejected and <em>appeared</em> to fire.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="fix">
+      <div class="fix-head">
+        <span class="rank">02</span>
+        <h3>A resting close order muted its own position</h3>
+      </div>
+      <div class="bands">
+        <div class="band band-said">
+          <div class="band-label">Diagnosed</div>
+          <p class="band-body">The monitor checks marks at most once daily; poll every 30 minutes instead.</p>
+        </div>
+        <div class="band band-was">
+          <div class="band-label">Actually</div>
+          <p class="band-body">
+            <strong>Wrong.</strong> <code>run_cycle()</code> already runs every 60 seconds. The
+            KTOS stop <em>did</em> fire at −250%. Its marketable limit at <code>ask × 1.03</code>
+            never filled, and the "already has a working order" guard then skipped that symbol
+            every cycle for the rest of the day. The loss ran on to
+            <span class="hl">−852%</span> behind a guard that was right about double-submission
+            and wrong about duration.
+          </p>
+        </div>
+        <div class="band band-fix">
+          <div class="band-label">Fixed</div>
+          <p class="band-body">
+            Working orders are aged. Past <code>stale_order_seconds</code> the order is cancelled
+            and re-priced, crossing the spread harder each attempt (3% → 5% → 7%), bounded by
+            <code>max_reprice_attempts</code> and then alerting rather than chasing forever.
+            Re-submitting the price that already failed to fill was the bug.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="fix">
+      <div class="fix-head">
+        <span class="rank">03</span>
+        <h3>The wheel never consulted the book</h3>
+      </div>
+      <div class="bands">
+        <div class="band band-said">
+          <div class="band-label">Diagnosed</div>
+          <p class="band-body">The wheel reads a universe list, not a live ledger, so it opens into an already-stressed book.</p>
+        </div>
+        <div class="band band-was">
+          <div class="band-label">Actually</div>
+          <p class="band-body">
+            Confirmed. v2.1 shipped <code>position_ledger</code> for exactly this coordination
+            and the wheel was never wired to it — so on one morning it sold six new CSPs while
+            the position manager was closing and rolling the same names.
+          </p>
+        </div>
+        <div class="band band-fix">
+          <div class="band-label">Fixed</div>
+          <p class="band-body">
+            Two gates fed from live positions: a cycle-level <code>max_book_loss_pct</code> (15%),
+            because a stressed book is a property of the book rather than of any ticker, and a
+            per-name <code>skip_losing_underlying</code> — being short a put is already bullish,
+            and adding another while the first is underwater doubles a thesis the market is
+            actively disagreeing with.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="fix">
+      <div class="fix-head">
+        <span class="rank">04</span>
+        <h3>Every strike was the same distance out, on every name</h3>
+      </div>
+      <div class="bands">
+        <div class="band band-said">
+          <div class="band-label">Diagnosed</div>
+          <p class="band-body">No minimum expected value on entry; require <code>credit / max_loss_at_stop &gt; 0.15</code>.</p>
+        </div>
+        <div class="band band-was">
+          <div class="band-label">Actually</div>
+          <p class="band-body">
+            The proposed formula is a constant — it rejects nothing. The real defect is upstream:
+            <code>select_csp_strike()</code> placed every name at the same <strong>~6.25% OTM
+            regardless of volatility</strong>. That is far away on a quiet name and inside a
+            normal fortnight on a volatile one.
+          </p>
+        </div>
+        <div class="band band-fix">
+          <div class="band-label">Fixed</div>
+          <p class="band-body">
+            Both the gate <em>and</em> the selector now measure against the underlying's own
+            1-sigma move over the holding period. Gating alone would have had the selector propose
+            a too-close strike forever and the gate reject it — replacing a losing wheel with an
+            idle one. Both fail open when vol is unavailable, so this can't become a second silent
+            IV gate.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <article class="fix">
+      <div class="fix-head">
+        <span class="rank">05</span>
+        <h3>The policy classifier matched substrings</h3>
+      </div>
+      <div class="bands">
+        <div class="band band-said">
+          <div class="band-label">Diagnosed</div>
+          <p class="band-body">Sector mapping mis-classifies aviation, agricultural, automotive and chemical policy as AI-infrastructure; audit the mappings.</p>
+        </div>
+        <div class="band band-was">
+          <div class="band-label">Actually</div>
+          <p class="band-body">
+            Not a mapping problem — a matching problem, in one line. Keywords were tested with
+            <code>kw in text</code>. <code>"ai"</code> matched <span class="hl">AI</span>rcraft,
+            d<span class="hl">ai</span>ry, rem<span class="hl">ai</span>n;
+            <code>"ice"</code> matched pr<span class="hl">ice</span>, serv<span class="hl">ice</span>,
+            Off<span class="hl">ice</span>. That is the whole explanation for five weeks of
+            "classifier artifact" entries.
+          </p>
+        </div>
+        <div class="band band-fix">
+          <div class="band-label">Fixed</div>
+          <p class="band-body">
+            Whole-word matching with an optional plural. The fix needed a fix: plain
+            <code>\b</code> would have stopped "tariffs" matching keyword "tariff" and quietly
+            dropped real signal while cleaning up the false positives.
+          </p>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2>What the strike change actually does</h2>
+    <p class="section-note">
+      Measured against the live book at Friday's close, for a 14-day expiry. The old fixed strike
+      sat inside a 1-sigma move on four of five sampled names — including KTOS and RKLB, the two
+      largest losers of the quarter.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <caption>
+          Quiet names barely move; volatile names move a lot. That is the entire intent —
+          "out of the money" now means the same thing on every ticker.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Ticker</th>
+            <th scope="col">Spot</th>
+            <th scope="col">Daily vol</th>
+            <th scope="col">1σ / 14d</th>
+            <th scope="col">Old OTM</th>
+            <th scope="col">New OTM</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>RKLB</td><td>$73.39</td><td>6.17%</td><td>$16.94</td><td>6.0%</td><td class="wide">23.7%</td></tr>
+          <tr><td>KTOS</td><td>$56.24</td><td>3.76%</td><td>$7.92</td><td>6.7%</td><td class="wide">14.7%</td></tr>
+          <tr><td>MP</td><td>$55.35</td><td>3.40%</td><td>$7.04</td><td>6.0%</td><td class="wide">13.3%</td></tr>
+          <tr><td>ALB</td><td>$137.20</td><td>2.63%</td><td>$13.51</td><td>6.3%</td><td>10.3%</td></tr>
+          <tr><td>CCJ</td><td>$95.93</td><td>2.52%</td><td>$9.06</td><td>6.2%</td><td>9.8%</td></tr>
+          <tr><td>ABT</td><td>$113.98</td><td>2.51%</td><td>$10.73</td><td>6.1%</td><td>9.6%</td></tr>
+          <tr><td>LDOS</td><td>$141.96</td><td>2.37%</td><td>$12.58</td><td>6.3%</td><td>9.1%</td></tr>
+          <tr><td>GEO</td><td>$31.94</td><td>1.62%</td><td>$1.93</td><td>6.1%</td><td class="same">7.6%</td></tr>
+          <tr><td>SHLD</td><td>$67.65</td><td>1.71%</td><td>$4.32</td><td>6.1%</td><td class="same">6.9%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The FJET decision</h2>
+    <p class="section-note">
+      The 25% floor would have liquidated FJET on deploy at −32.3%. You chose to keep it and write
+      covered calls instead, so the position is exempt — with its reasoning recorded in the config,
+      not just in a commit message.
+    </p>
+    <div class="decision">
+      <h3>Keep the position, write the calls</h3>
+      <ul>
+        <li>
+          <strong>Exempt, on the record.</strong> <span class="inline-code">catastrophic_exempt</span>
+          carries the plan — keep the GTC breakeven sell at $5.71 rather than realize −$8,420 today.
+          Anything on that list must state a plan, and comes off when the plan ends.
+        </li>
+        <li>
+          <strong>Covered calls were never reachable.</strong>
+          <span class="inline-code">run_cycle()</span> only ever called
+          <span class="inline-code">open_csp()</span>; <span class="inline-code">open_cc()</span>
+          could only be reached from <span class="inline-code">handle_assignment()</span>. No call
+          was ever written against a holding acquired any other way — which is why FJET read
+          "CC eligible" for six weeks and nothing happened.
+        </li>
+        <li>
+          <strong>Sized to 309, not 4,570.</strong> The other 4,261 shares are locked by the
+          breakeven order, so the call is 3 contracts. Sizing off held shares would have submitted
+          a call we cannot cover.
+        </li>
+        <li>
+          <strong>Struck off spot, not basis.</strong> A basis-derived strike lands at $5.81 against
+          a $3.86 spot — ~50% out, bidding roughly nothing, which is exactly why August 7th concluded
+          "write no CCs". The spot-based strike is $4.50. The trade-off is explicit: it caps recovery
+          below cost basis.
+        </li>
+        <li>
+          <strong>And it can't stack.</strong> <span class="inline-code">sync_positions()</span> never
+          detected short <em>calls</em>, so a CC-writing loop would have sold another one every cycle
+          — the ladder-runaway failure again, with different orders.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Watch on Monday</h2>
+    <p class="section-note">
+      Market reopens 09:30 ET, 2026-08-24. Three of these are ways this work could be wrong.
+    </p>
+    <ul class="watch">
+      <li>
+        <b>Expect fewer trades, not more</b>
+        <span>Wider strikes collect less premium, so some names will now fail the credit floors.
+        With a profit factor of 0.23 that is the intended direction — but confirm it isn't
+        trading <em>zero</em>.</span>
+        <code>grep -c "SELL CSP" logs/insights/2026-08-24.jsonl</code>
+      </li>
+      <li>
+        <b>Verify the realized-vol numbers against a second source</b>
+        <span>ABT prints 2.51% daily — roughly 40% annualized, which is high for Abbott and hints
+        the free IEX daily feed may be gappy. Overestimated vol makes the gate stricter and
+        silently blocks good trades, which looks identical to working correctly.</span>
+      </li>
+      <li>
+        <b>Confirm the FJET covered call is written</b>
+        <span>Three contracts near $4.50, with a log line reading "pricing CC off spot". If it
+        doesn't appear, the underwater branch didn't trigger.</span>
+      </li>
+      <li>
+        <b>The eleven new tickers become IV-eligible around 08-28</b>
+        <span>Fifteen trading days from August 7th. Nothing to do but watch — they are hard-gated
+        until then, and their silence is not a bug.</span>
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>170 tests</span>
+    <span>5 commits</span>
+    <span>VM 117 · home-workstation</span>
+    <span>Full detail in TODO.md</span>
+  </footer>
+
+</div>
