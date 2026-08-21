@@ -162,6 +162,22 @@ class AlpacaClient:
         """All currently open/working orders (used to avoid double-submitting)."""
         return self._get("/v2/orders", params={"status": "open", "limit": 500})
 
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel ONE working order. Used by the position manager to re-price a close
+        order that is not filling — a resting close order silently mutes its own
+        position, because the double-submit guard then skips that symbol every cycle.
+
+        Returns True if the order is gone (204), or was already terminal (404/422 —
+        it filled or was cancelled between our read and this call, which is success
+        for our purposes, not an error)."""
+        resp = self._session.delete(
+            f"{self.base_url}/v2/orders/{order_id}", headers=self._headers, timeout=20
+        )
+        if resp.status_code in (200, 204, 404, 422):
+            return True
+        print(f"[ALPACA] cancel_order({order_id}) → {resp.status_code} {resp.text[:200]}")
+        return False
+
     def cancel_all_orders(self) -> list:
         """Cancel every open order. Used by the watchdog dead-man's switch — a hung
         loop must not leave resting orders unmanaged in a moving market. Returns

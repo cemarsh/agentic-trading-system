@@ -92,6 +92,31 @@ SECTOR_MAP = {
     },
 }
 
+# Keyword matching is WHOLE-WORD, not substring (fixed 2026-08-21).
+#
+# `any(kw in text_lower for kw in keywords)` was a substring test, and two keywords
+# are short enough to appear inside ordinary English:
+#   "ai"  matched  "AIrcraft", "dAIry", "remAIn", "chAIn"   -> ai_infrastructure
+#   "ice" matched  "prICE", "servICE", "OffICE", "notICE"   -> border_security
+# That is the whole explanation for aviation, agricultural, automotive and dairy
+# headlines returning VRT/MSFT/ORCL/PLTR/SMCI — flagged in five separate weekly
+# journals as a mysterious "classifier artifact". Real signals were buried in the
+# false positives, and the policy→execution pathway would have traded on them.
+#
+# \b on both ends keeps genuine hits ("Government AI", "ICE detention") while
+# rejecting the substrings. Multi-word phrases work unchanged.
+# The trailing `s?` matters: plain \b would stop "tariff" matching "tariffs" and
+# quietly drop real signal while fixing the false positives. Keywords should be
+# listed in their base singular form; other inflections ("drilling" for "drill")
+# need their own entry.
+_KEYWORD_RE = {
+    sector: re.compile(
+        "|".join(r"\b" + re.escape(kw) + r"s?\b" for kw in cfg["keywords"])
+    )
+    for sector, cfg in SECTOR_MAP.items()
+}
+
+
 # ── Policy signal sources ──────────────────────────────────────────────────
 # selector=None means use the json_api fetcher instead of BeautifulSoup
 SOURCES = [
@@ -176,11 +201,11 @@ class PolicyMonitor:
         SIGNAL_CACHE.write_text(json.dumps(trimmed))
 
     def _classify(self, text: str) -> tuple[List[str], List[str]]:
-        """Map text to matched sectors and their tickers."""
+        """Map text to matched sectors and their tickers (whole-word matching)."""
         text_lower = text.lower()
         matched_sectors, matched_tickers = [], []
         for sector, cfg in SECTOR_MAP.items():
-            if any(kw in text_lower for kw in cfg["keywords"]):
+            if _KEYWORD_RE[sector].search(text_lower):
                 matched_sectors.append(sector)
                 matched_tickers.extend(cfg["tickers"])
         return matched_sectors, list(set(matched_tickers))

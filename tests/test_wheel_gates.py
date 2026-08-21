@@ -23,6 +23,13 @@ def _settings(min_iv_rank=0.0, iv_fail_open=False):
     cfg.wheel.iv_gate_fail_open = iv_fail_open
     cfg.wheel.min_credit_per_share = 0.15
     cfg.wheel.earnings_gate = False  # off by default in tests; enabled per-test
+    # Gates added 2026-08-21 — off by default so existing cases keep their
+    # original meaning; tests that exercise them enable them explicitly.
+    cfg.wheel.max_book_loss_pct = 0.0
+    cfg.wheel.skip_losing_underlying = False
+    cfg.wheel.min_otm_vol_mult = 0.0
+    cfg.wheel.min_credit_vs_expected_move = 0.0
+    cfg.wheel.realized_vol_lookback_days = 30
     cfg.database.url = ""            # no IV history available
     return cfg
 

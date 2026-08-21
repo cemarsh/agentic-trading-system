@@ -67,6 +67,138 @@ class ProtectiveLogic:
                     pos.high_water_mark = current_price
                     pos.stop_price = current_price * (1 - prot.trailing_stop_pct / 100)
 
+    def check_catastrophic_loss(
+        self, alpaca_positions: list, state: Optional[dict] = None
+    ) -> List[dict]:
+        """
+        Hard loss floor for EVERY equity long — including `no_auto_manage` names.
+
+        `no_auto_manage` was introduced to stop the ladder averaging down into FJET.
+        It did that by dropping those tickers out of sync_positions() entirely, which
+        also removed their trailing stop, leaving them with no exit at all. FJET then
+        fell for six consecutive weeks to -31% unattended.
+
+        This is not a strategy exit — at 25% it sits far outside the 7% trailing stop.
+        It is the floor that says the thesis has failed. Returns the positions that
+        breached; the caller executes. Reads live broker positions rather than
+        self._positions precisely so quarantined names cannot hide from it.
+
+        `state` is the persisted agent state; a breach fires ONCE per ticker
+        (guards.acted_once) so a restart loop cannot resubmit the liquidation.
+        """
+        prot = self.cfg.protection
+        limit_pct = getattr(prot, "max_equity_loss_pct", 0.0) or 0.0
+        if limit_pct <= 0:
+            return []
+
+        # Names held under an explicit manual exit plan. This is NOT the same as
+        # no_auto_manage: that list means "don't ladder/trail this", which is how the
+        # exit disappeared in the first place. An entry here is a stated decision with
+        # its reasoning recorded in strategy_params.yaml, not an absence of one.
+        exempt = set(getattr(prot, "catastrophic_exempt", None) or [])
+
+        breached = []
+        for p in alpaca_positions or []:
+            ticker = p.get("symbol", "")
+            if _OPTIONS_SYMBOL_RE.match(ticker):
+                continue
+            if ticker in exempt:
+                continue
+            try:
+                qty = int(float(p.get("qty", 0)))
+                entry = float(p.get("avg_entry_price", 0) or 0)
+                price = float(p.get("current_price", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            # Long positions only. A short equity leg losing money is a different
+            # problem with a different exit, and this rule would size it wrong.
+            if qty <= 0 or entry <= 0 or price <= 0:
+                continue
+
+            loss_pct = (entry - price) / entry * 100
+            if loss_pct < limit_pct:
+                continue
+
+            if state is not None:
+                from execution.guards import acted_once
+                if not acted_once(state.setdefault("guards", {}),
+                                  "catastrophic_equity_exit", ticker):
+                    continue
+
+            breached.append({
+                "ticker": ticker, "qty": qty, "entry": entry,
+                "price": price, "loss_pct": loss_pct,
+                "unrealized": (price - entry) * qty,
+            })
+        return breached
+
+    def execute_catastrophic_exit(self, breach: dict) -> Optional[dict]:
+        """Liquidate a position that breached the hard equity loss floor."""
+        ticker = breach["ticker"]
+        if not self._alpaca:
+            return None
+
+        # Cancel our own resting sells on this name FIRST. Shares committed to a
+        # working order are not available to a new one, so a liquidation submitted
+        # underneath a resting sell is rejected for insufficient quantity — the exit
+        # would appear to fire and quietly do nothing. FJET is the live example:
+        # 4,261 of 4,570 shares are locked by a GTC breakeven sell, leaving 309
+        # sellable. A hard loss floor outranks a resting hope.
+        try:
+            for o in self._alpaca.get_open_orders() or []:
+                if o.get("symbol") == ticker and (o.get("side") or "").lower() == "sell":
+                    if self._alpaca.cancel_order(o.get("id")):
+                        print(f"[PROTECT] {ticker} — cancelled resting sell "
+                              f"{o.get('qty')} @ {o.get('limit_price')} to free shares")
+        except Exception as e:
+            print(f"[PROTECT] {ticker} — could not clear resting orders ({e}); "
+                  f"liquidation may be rejected for locked shares")
+
+        try:
+            order = self._alpaca.submit_order(
+                ticker=ticker, qty=breach["qty"], side="sell", order_type="market",
+            )
+        except Exception as e:
+            print(f"[PROTECT] catastrophic exit FAILED for {ticker}: {e}")
+            log_insight(
+                source="protection", category="error",
+                insight=f"catastrophic exit failed for {ticker}: {e}",
+                metadata={"ticker": ticker},
+            )
+            return None
+
+        # Drop any trailing-stop state so check_stops can't fire a second sell.
+        self._positions.pop(ticker, None)
+
+        print(f"[PROTECT] CATASTROPHIC EXIT {ticker} — {breach['loss_pct']:.1f}% "
+              f"below entry (${breach['unrealized']:+,.0f})")
+        log_insight(
+            source="protection", category="decision",
+            insight=(f"CATASTROPHIC EXIT {breach['qty']}x {ticker} — "
+                     f"{breach['loss_pct']:.1f}% below entry ${breach['entry']:.2f} "
+                     f"(now ${breach['price']:.2f}, unrealized ${breach['unrealized']:+,.0f})"),
+            metadata=breach,
+        )
+        if self._db:
+            try:
+                self._db.log_decision(
+                    ticker=ticker, action="SELL", tier="protection", confidence=1.0,
+                    reasoning=(f"Catastrophic equity loss floor: {breach['loss_pct']:.1f}% "
+                               f"below entry ${breach['entry']:.2f}"),
+                    order_id=order.get("id"), status="pending",
+                )
+                self._db.log_lesson(
+                    ticker=ticker, strategy_used="catastrophic_equity_stop",
+                    regime="unknown", outcome="loss_taken",
+                    lesson=(f"Hard loss floor exit at {breach['loss_pct']:.1f}% below entry. "
+                            f"Entry ${breach['entry']:.2f}, exit ~${breach['price']:.2f}."),
+                    entry_price=breach["entry"], exit_price=breach["price"],
+                    pnl=round(breach["unrealized"], 2),
+                )
+            except Exception as e:
+                print(f"[PROTECT] logging failed for {ticker}: {e}")
+        return order
+
     def check_stops(self, current_prices: Dict[str, float]) -> List[str]:
         """Return list of tickers that have hit their trailing stop."""
         triggered = []

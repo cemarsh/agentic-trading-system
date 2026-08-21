@@ -16,6 +16,39 @@ Generate consistent options premium income by running the Wheel on high-liquidit
 - CC strike markup (`cc_strike_markup_pct`)
 - Minimum premium threshold (`min_premium_pct`)
 
+## Entry Gates (order of evaluation)
+
+A CSP must clear every gate below. Each is a hard reject, not a warning.
+
+| # | Gate | Config | Rejects |
+|---|------|--------|---------|
+| 0 | Book health *(cycle-level)* | `max_book_loss_pct` 15% | Any new CSP while the book's total unrealized loss exceeds 15% of equity |
+| 0a | Losing underlying | `skip_losing_underlying` | A name we already hold at a loss |
+| 0b | IV rank | `min_iv_rank`, `iv_gate_fail_open` | Cheap premium; **fail-closed** — no history, no trade |
+| 1 | Allocation cap | `max_wheel_allocation_pct` 65% | Book already fully deployed |
+| 2 | Per-trade cap | `max_portfolio_pct_per_trade` 15% | Underlying too expensive for the account |
+| 3 | Earnings | `earnings_gate` | Expiry window contains an earnings date |
+| 4 | Risk gate | `risk.*` | Quarantine + sector-correlation caps |
+| 5 | Credit floor | `min_credit_per_share`, `min_premium_pct` | Absolute premium too thin |
+| 5b | **Expected value** | `min_otm_vol_mult` 1.0, `min_credit_vs_expected_move` 0.15 | Strike inside 1σ, or credit < 15% of the 1σ move |
+| 6 | Sized re-check | `risk.*` | The *sized* order breaching a cap |
+
+**Why gate 0 exists (added 2026-08-21):** the wheel read the universe list and nothing else,
+so it opened into an already-bleeding book — on one W26 morning it sold six new CSPs while the
+position manager was closing and rolling the same names. v2.1 shipped `position_ledger` for
+exactly this coordination and the wheel was never wired to it.
+
+**Why gate 5b exists (added 2026-08-21):** the credit floors bound premium in absolute terms
+but say nothing about what is risked to earn it, and `select_csp_strike()` places every name at
+the same ~6.25% OTM regardless of volatility — far away on a quiet name, inside a normal week's
+range on KTOS or RKLB. Both sub-gates measure against the underlying's own 1-sigma move over the
+holding period (`spot × daily_vol × √DTE`).
+
+Note this is **not** "credit ÷ max loss at the stop". With a percentage stop that ratio is
+`C / (2.5 × C)` = 0.4 for every trade ever placed, so it can never reject anything. The expected
+move is what the premium is actually being paid to cover. Both sub-gates **fail open** when
+realized vol is unavailable, so an unmeasurable vol cannot become a second silent IV gate.
+
 ## Stage 1 — Cash Secured Put
 **Precondition**: No open CSP or CC on this ticker (stage = 0).
 

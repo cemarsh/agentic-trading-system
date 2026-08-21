@@ -726,6 +726,22 @@ def run(mode: str):
             wheel.sync_positions(positions)
 
             # --- Protective Logic ---
+            # Catastrophic floor FIRST: it reads live broker positions, so it also
+            # covers no_auto_manage names that sync_positions() deliberately skips.
+            # Those had no exit at all before this — the FJET six-week bleed.
+            try:
+                for breach in protection.check_catastrophic_loss(positions, state=state):
+                    if protection.execute_catastrophic_exit(breach):
+                        save_state(state)  # persist the acted_once mark immediately
+                        if notifier:
+                            notifier.critical_alert(
+                                f"CATASTROPHIC EQUITY EXIT — {breach['ticker']} liquidated at "
+                                f"{breach['loss_pct']:.1f}% below entry "
+                                f"(${breach['unrealized']:+,.0f} unrealized)"
+                            )
+            except Exception as ce:
+                print(f"[PROTECT] catastrophic check error: {ce}")
+
             stop_tickers = protection.check_stops(current_prices)
             for ticker in stop_tickers:
                 protection.execute_stop(ticker)

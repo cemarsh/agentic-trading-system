@@ -92,6 +92,24 @@ def _compute_current_mark(position: dict) -> Optional[float]:
         return None
 
 
+def _order_age_seconds(order: dict) -> float:
+    """Seconds since an order was submitted. Unparseable timestamp → 0.0, which reads
+    as 'brand new' and defers re-pricing to a later cycle rather than cancelling on
+    bad data."""
+    stamp = order.get("submitted_at") or order.get("created_at") or ""
+    if not stamp:
+        return 0.0
+    try:
+        # Alpaca returns RFC3339 with 'Z' and sub-second precision.
+        cleaned = stamp.replace("Z", "+00:00")
+        submitted = datetime.fromisoformat(cleaned)
+        if submitted.tzinfo is None:
+            submitted = submitted.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - submitted).total_seconds())
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # -----------------------------------------------------------------------
 # PositionManager
 # -----------------------------------------------------------------------
@@ -123,6 +141,14 @@ class PositionManager:
         # $0.01/share rolls happened.
         self.min_roll_credit = getattr(pm, "min_roll_credit", 0.15) if pm else 0.15
         self.min_hold_hours = getattr(pm, "min_hold_hours", 24.0) if pm else 24.0
+        self.stale_order_seconds = getattr(pm, "stale_order_seconds", 0) if pm else 0
+        self.max_reprice_attempts = getattr(pm, "max_reprice_attempts", 3) if pm else 3
+        self.reprice_aggression = getattr(pm, "reprice_aggression", 0.02) if pm else 0.02
+        # Re-price attempts per (symbol, trading day). Deliberately in-memory: unlike
+        # the guards in guards.py — which stop a runaway from ACQUIRING — this counter
+        # only limits how hard we chase an EXIT. A restart resetting it makes the
+        # system try harder to get flat, which is the safe direction to fail.
+        self._reprice_counts: dict = {}
 
     # -------------------------------------------------------------------
     # Public API
@@ -154,10 +180,16 @@ class PositionManager:
         # Symbols that already have a working order — never double-submit. Limit orders
         # (unlike the old market orders) can rest unfilled across loop cycles, so without
         # this guard a slow fill would get a duplicate order every ~60s.
-        working_orders = set()
+        working_orders: dict = {}
         if self._alpaca:
             try:
-                working_orders = {o.get("symbol") for o in self._alpaca.get_open_orders()}
+                for o in self._alpaca.get_open_orders():
+                    # Keep the OLDEST working order per symbol — that is the one whose
+                    # age decides whether we are stuck.
+                    sym = o.get("symbol")
+                    prev = working_orders.get(sym)
+                    if prev is None or _order_age_seconds(o) > _order_age_seconds(prev):
+                        working_orders[sym] = o
             except Exception as e:
                 print(f"[PM] could not fetch open orders ({e}) — skipping this cycle to be safe")
                 return result
@@ -169,9 +201,22 @@ class PositionManager:
                 print(f"[PM] Cannot parse OCC symbol '{symbol}' — skipping")
                 continue
 
-            if symbol in working_orders:
-                print(f"[PM] {symbol} already has a working order — skipping this cycle")
-                continue
+            # A working order used to mean "skip this symbol", full stop. That guard
+            # was right about double-submission and wrong about duration: when a close
+            # order does not fill, the position it was meant to exit becomes invisible
+            # to every rule below it for the rest of the day. KTOS's stop fired
+            # correctly at -250%, its marketable limit never filled, and the loss ran
+            # on to -852% behind this branch. Re-price instead of waiting.
+            resting = working_orders.get(symbol)
+            if resting is not None:
+                age = _order_age_seconds(resting)
+                if not self.stale_order_seconds or age < self.stale_order_seconds:
+                    print(f"[PM] {symbol} has a working order ({age:.0f}s old) — skipping this cycle")
+                    continue
+                if not self._reprice_stale_order(symbol, resting, age):
+                    continue
+                # Order cancelled; fall through and let the rules below re-evaluate
+                # this position and submit a fresh, more aggressive order.
 
             current_mark = _compute_current_mark(pos)
             if current_mark is None:
@@ -247,6 +292,55 @@ class PositionManager:
     # Internal helpers
     # -------------------------------------------------------------------
 
+    def _reprice_stale_order(self, symbol: str, order: dict, age: float) -> bool:
+        """
+        Cancel a working order that has sat unfilled past `stale_order_seconds`.
+
+        Returns True when the symbol is clear for a fresh order this cycle, False when
+        the caller should keep skipping it.
+
+        Bounded by max_reprice_attempts per trading day: an option that nobody will
+        trade at any price cannot be chased forever, and the honest response to that
+        is an alert, not an infinite loop of cancel/replace.
+        """
+        day_key = (symbol, datetime.now(timezone.utc).date().isoformat())
+        attempts = self._reprice_counts.get(day_key, 0)
+
+        if attempts >= self.max_reprice_attempts:
+            # Log once at the boundary, not every cycle for the rest of the day.
+            if attempts == self.max_reprice_attempts:
+                self._reprice_counts[day_key] = attempts + 1
+                print(f"[PM] {symbol} — {attempts} re-prices without a fill, giving up for today")
+                log_insight(
+                    source="system", category="error",
+                    insight=(f"{symbol} close order unfilled after {attempts} re-prices — "
+                             f"position remains OPEN and unhedged, needs manual attention"),
+                    metadata={"symbol": symbol, "attempts": attempts},
+                )
+            return False
+
+        order_id = order.get("id")
+        if not order_id or not self._alpaca:
+            return False
+        try:
+            if not self._alpaca.cancel_order(order_id):
+                print(f"[PM] {symbol} — could not cancel stale order, will retry next cycle")
+                return False
+        except Exception as e:
+            print(f"[PM] {symbol} — cancel failed ({e}), will retry next cycle")
+            return False
+
+        self._reprice_counts[day_key] = attempts + 1
+        print(f"[PM] {symbol} — close order unfilled after {age:.0f}s, "
+              f"cancelled for re-price (attempt {attempts + 1}/{self.max_reprice_attempts})")
+        log_insight(
+            source="system", category="decision",
+            insight=(f"RE-PRICE {symbol} — close order unfilled after {age:.0f}s, "
+                     f"cancelled and re-submitting (attempt {attempts + 1})"),
+            metadata={"symbol": symbol, "age_seconds": round(age), "attempt": attempts + 1},
+        )
+        return True
+
     def _close_position(
         self,
         pos: dict,
@@ -272,7 +366,13 @@ class PositionManager:
             # outside RTH and slip badly on wide option spreads).
             quote = self._alpaca.get_option_quote(symbol)
             ref = (quote["ask"] if quote and quote.get("ask") else current_mark)
-            limit_price = round(ref * (1 + LIMIT_SLIPPAGE), 2)
+            # Cross the spread harder on each re-price. A limit that failed to fill at
+            # ask x 1.03 will not fill at ask x 1.03 again — repeating the same price
+            # is what let the KTOS close sit unfilled while the loss ran.
+            day_key = (symbol, datetime.now(timezone.utc).date().isoformat())
+            attempts = self._reprice_counts.get(day_key, 0)
+            slippage = LIMIT_SLIPPAGE + attempts * self.reprice_aggression
+            limit_price = round(ref * (1 + slippage), 2)
             self._alpaca.submit_option_order(
                 symbol=symbol,
                 qty=qty,

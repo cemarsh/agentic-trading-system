@@ -89,6 +89,17 @@ class WheelConfig:
     prioritize_by_iv_rank: bool = False  # evaluate richest-premium candidates first
     skip_log_cooldown_minutes: int = 240  # de-dupe repeated skip decisions in the log/journal
     use_signal_candidates: bool = False   # let policy signals promote wheel candidates
+    # --- Book-health gate (2026-08-21) ---
+    max_book_loss_pct: float = 0.0        # stop opening CSPs when total unrealized loss exceeds this % of equity; 0 disables
+    skip_losing_underlying: bool = False  # don't open a new CSP on a name already carrying a loss
+    # --- Entry expected-value gate (2026-08-21) ---
+    min_credit_vs_expected_move: float = 0.0  # credit/share as a fraction of the 1-sigma move over DTE; 0 disables
+    # --- Covered calls on deeply-underwater holdings (2026-08-21) ---
+    write_covered_calls: bool = False         # let run_cycle write CCs on stage-2 holdings
+    underwater_cc_loss_pct: float = 25.0      # a holding this far below cost uses a spot-based strike
+    underwater_cc_markup_pct: float = 12.0    # that strike = spot x (1 + this), not cost basis
+    min_otm_vol_mult: float = 0.0             # strike must sit >= this many 1-sigma moves OTM; 0 disables
+    realized_vol_lookback_days: int = 30      # daily bars used to compute realized vol
 
 
 @dataclass
@@ -99,6 +110,11 @@ class ProtectionConfig:
     ladder_buy_shares: int
     max_ladder_rungs: int = 3  # hard cap on ladder buys per ticker (prevents runaway averaging-down)
     no_auto_manage: list = None  # tickers the protective logic ignores (no trailing stop / no ladder)
+    # Catastrophic backstop applied to EVERY equity long, no_auto_manage included.
+    # no_auto_manage exists to stop the ladder averaging down, not to remove all
+    # downside protection — FJET fell 31% with nothing watching it. 0 disables.
+    max_equity_loss_pct: float = 0.0
+    catastrophic_exempt: list = None  # tickers held under an explicit manual exit plan
 
 
 @dataclass
@@ -125,6 +141,11 @@ class PositionManagementConfig:
     roll_otm_buffer: float = 0.05     # roll down-and-out: new put strike <= spot * (1 - this)
     min_roll_credit: float = 0.15     # $/share floor on roll net credit; below it, close instead
     min_hold_hours: float = 24.0      # never ROLL a leg opened less than this long ago
+    # A resting close order muted its own position: the working-order guard skipped
+    # the symbol every cycle while the loss kept running. Re-price instead. 0 disables.
+    stale_order_seconds: int = 0      # cancel + re-price a working close order older than this
+    max_reprice_attempts: int = 3     # give up (and alert) after this many re-prices in a day
+    reprice_aggression: float = 0.02  # each re-price crosses the spread by this much more
 
 
 @dataclass

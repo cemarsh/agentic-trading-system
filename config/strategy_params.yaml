@@ -53,6 +53,19 @@ position_management:
   roll_otm_buffer: 0.05         # Roll down-and-out: new put strike <= spot * (1 - this), and never above the old strike
   min_roll_credit: 0.15         # $/share — a roll below this is a fee generator with delta risk, not a trade; close instead
   min_hold_hours: 24            # Never ROLL a position opened less than this long ago (stop-loss / profit-close exempt)
+  # --- Stale close-order re-pricing (2026-08-21) — how KTOS reached -852% ------
+  # The stop DID fire at -250%. It submitted a marketable limit at ask x 1.03,
+  # which did not fill because the market was running away from it. The order then
+  # rested, and the "already has a working order" guard skipped that symbol on
+  # EVERY subsequent cycle — so the stop never re-armed and the loss ran to -852%
+  # unattended. TIF is `day`, so the mute lasted until the close and resumed the
+  # next session at a worse mark. The guard was right to prevent double-submission
+  # and wrong to be permanent: a close order that has not filled must be re-priced,
+  # not waited on. Each re-price crosses the spread a little harder; after
+  # max_reprice_attempts we stop and shout rather than chase forever.
+  stale_order_seconds: 180      # Re-price a working close order still unfilled after this long
+  max_reprice_attempts: 3       # Then stop re-pricing and raise a critical alert
+  reprice_aggression: 0.02      # Each attempt crosses the spread by this much more (2%)
 
 morning_briefing:
   enabled: true
@@ -173,6 +186,49 @@ wheel:
   # same headroom math. A promoted name cannot trade until iv_tracker has accrued
   # 15 snapshots for it. See execution/dynamic_universe.py.
   use_signal_candidates: true
+  # --- Book-health gate (2026-08-21) ---------------------------------------
+  # The wheel read the universe list and nothing else, so it kept opening into a
+  # book that was already bleeding: on one W26 morning it sold six new CSPs while
+  # the position manager was closing and rolling the same names. v2.1 shipped
+  # position_ledger for exactly this and the wheel was never wired to it.
+  # These two gates make the book itself an input to entry.
+  max_book_loss_pct: 15.0       # No new CSPs while total unrealized loss exceeds this % of equity
+  skip_losing_underlying: true  # No new CSP on an underlying we already hold at a loss
+  # --- Entry expected value (2026-08-21) -----------------------------------
+  # The credit floors below (min_credit_per_share / min_premium_pct) bound the
+  # premium in ABSOLUTE terms but say nothing about what is being risked to earn
+  # it. Selling $0.23 on GEO and $0.05 on AADX cleared every gate we had and then
+  # stopped out for many multiples of the credit.
+  #
+  # Strike distance was the deeper problem: select_csp_strike() puts every name at
+  # the same ~6.25% OTM regardless of volatility. On a quiet name that is far away;
+  # on KTOS or RKLB it is inside a normal week's range. Scaling by the underlying's
+  # own realized vol makes "OTM" mean the same thing on every ticker.
+  #
+  # NOTE both gates are measured against the 1-sigma move over the holding period
+  # (spot x daily_vol x sqrt(DTE)), NOT against "max loss at the stop". Loss at a
+  # PERCENTAGE stop is a fixed multiple of the credit — credit / (2.5 x credit) is
+  # 0.4 for every trade ever placed — so that ratio cannot reject anything. The
+  # expected move is the thing the premium is actually being paid to cover.
+  min_credit_vs_expected_move: 0.15  # Credit/share must be >= 15% of the 1-sigma move
+  min_otm_vol_mult: 1.0              # Strike must sit >= 1.0 sigma below spot
+  realized_vol_lookback_days: 30     # Daily bars used for the realized-vol estimate
+  # --- Covered calls on holdings we already own (2026-08-21) ----------------
+  # run_cycle() only ever called open_csp(). open_cc() existed but was reachable
+  # ONLY from handle_assignment(), so no covered call was ever written against a
+  # holding the system already had. That is why FJET was "flagged CC-eligible" in
+  # the journal for six consecutive weeks and nothing happened.
+  #
+  # Strike selection: the normal rule is cost_basis x cc_strike_markup_pct, which
+  # is right for an assigned position near its basis. On a holding down 32% it puts
+  # the strike ~50% OTM where the bid is ~$0.00 — collecting nothing, which is
+  # exactly why 2026-08-07 concluded "write no CCs". For a position past
+  # underwater_cc_loss_pct we price off SPOT instead, accepting the real trade-off:
+  # a call struck below cost basis caps the recovery at that strike. That is a
+  # deliberate choice to convert a stalled position into income.
+  write_covered_calls: true
+  underwater_cc_loss_pct: 25.0       # Below this much loss, switch to a spot-based strike
+  underwater_cc_markup_pct: 12.0     # Underwater strike = spot x 1.12
 
 protection:
   trailing_stop_pct: 7.0         # Trailing stop on all equity positions (%)
@@ -181,6 +237,24 @@ protection:
   ladder_buy_shares: 10          # Shares per ladder buy
   max_ladder_rungs: 3            # Hard cap: at most this many ladder buys per ticker (prevents runaway)
   no_auto_manage: ["FJET", "OPTX", "AADX"]  # IPO starters — no trailing stop / no ladder (manual breakeven exit)
+  # --- Catastrophic backstop for equity longs (2026-08-21) -----------------
+  # no_auto_manage was added on 2026-06-16 to stop the ladder averaging down into
+  # FJET. It did that by dropping those tickers out of sync_positions entirely,
+  # which also removed their trailing stop — so they had NO exit at all. FJET then
+  # fell for six consecutive weeks to -31% (-$8,637, more than the quarter's entire
+  # gross win total) with nothing watching it.
+  #
+  # This backstop applies to EVERY equity long including no_auto_manage names. It is
+  # deliberately far outside the 7% trailing stop: it is not a strategy exit, it is
+  # the floor that says a thesis has failed. Fires once per ticker (guards.acted_once)
+  # so a restart cannot re-submit it.
+  max_equity_loss_pct: 25.0     # Liquidate an equity long down this % from average entry (0 disables)
+  # Exempt from the floor above — held under an EXPLICIT manual exit plan, not neglect.
+  # FJET (decision 2026-08-21): keep the position and its resting GTC breakeven sell at
+  # $5.71, and write covered calls against the 309 unlocked shares instead of realizing
+  # -$8,420 today. This exemption is the reason the floor will not fire on it; anything
+  # on this list must have a stated plan here, and comes OFF the list when that plan ends.
+  catastrophic_exempt: ["FJET"]
 
 guardrails:
   manual_confirm_threshold: 5000 # Orders above this $ require explicit CONFIRM

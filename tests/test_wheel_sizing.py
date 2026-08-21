@@ -33,6 +33,13 @@ def _settings(tickers=("CCJ",), max_contracts=4, per_trade_pct=15.0,
     cfg.wheel.max_contracts_per_trade = max_contracts
     cfg.wheel.prioritize_by_iv_rank = prioritize
     cfg.wheel.skip_log_cooldown_minutes = 240
+    # Gates added 2026-08-21 — off by default so existing cases keep their
+    # original meaning; tests that exercise them enable them explicitly.
+    cfg.wheel.max_book_loss_pct = 0.0
+    cfg.wheel.skip_losing_underlying = False
+    cfg.wheel.min_otm_vol_mult = 0.0
+    cfg.wheel.min_credit_vs_expected_move = 0.0
+    cfg.wheel.realized_vol_lookback_days = 30
     cfg.database.url = ""
     return cfg
 

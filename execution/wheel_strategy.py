@@ -68,6 +68,16 @@ class WheelStrategy:
         cooldown_min = getattr(self.cfg.wheel, "skip_log_cooldown_minutes", 240) or 240
         self._skip_cd = Cooldown(cooldown_min * 60)
         self._untradeable_logged = False
+        # Book health, refreshed by sync_positions() from live broker state. Defaults
+        # are the "clean book" values so a wheel constructed without a sync (tests,
+        # --dry runs) behaves exactly as it did before these gates existed.
+        self._book_unrealized: float = 0.0
+        self._losing_underlyings: set = set()
+        self._vol_cache: Dict[str, Optional[float]] = {}
+        self._shares_available: Dict[str, int] = {}
+        self._open_short_calls: Dict[str, float] = {}
+        self._cost_basis: Dict[str, float] = {}
+        self._spot: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Helpers
@@ -89,6 +99,71 @@ class WheelStrategy:
             meta.update(metadata or {})
             log_insight(source="wheel", category="decision", insight=message, metadata=meta)
 
+    def _realized_vol(self, ticker: str) -> Optional[float]:
+        """
+        Daily realized volatility (stdev of log returns) over the configured lookback.
+
+        Cached per process: this costs an API call per ticker and the number barely
+        moves within a session. Returns None when there aren't enough bars — callers
+        treat that as "cannot evaluate" and fall back rather than guessing, since a
+        wrong vol estimate would silently mis-size every strike.
+        """
+        if ticker in self._vol_cache:
+            return self._vol_cache[ticker]
+
+        result: Optional[float] = None
+        lookback = int(getattr(self.cfg.wheel, "realized_vol_lookback_days", 30) or 30)
+        try:
+            # +1 bar because N log returns need N+1 closes.
+            bars = self._alpaca.get_bars(ticker, "1Day", lookback + 1) if self._alpaca else []
+            closes = [float(b["c"]) for b in (bars or []) if b.get("c")]
+            if len(closes) >= 10:
+                import math
+                rets = [
+                    math.log(closes[i] / closes[i - 1])
+                    for i in range(1, len(closes))
+                    if closes[i - 1] > 0 and closes[i] > 0
+                ]
+                if len(rets) >= 9:
+                    mean = sum(rets) / len(rets)
+                    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+                    result = math.sqrt(var)
+        except Exception as e:
+            print(f"[WHEEL] {ticker} — realized vol unavailable ({e})")
+
+        self._vol_cache[ticker] = result
+        return result
+
+    def _expected_move(self, ticker: str, spot: float, dte: int) -> Optional[float]:
+        """1-sigma dollar move over `dte` calendar days: spot x daily_vol x sqrt(dte)."""
+        vol = self._realized_vol(ticker)
+        if vol is None or spot <= 0 or dte <= 0:
+            return None
+        import math
+        return spot * vol * math.sqrt(dte)
+
+    def book_health(self, equity: float) -> tuple:
+        """
+        (ok, reason) — whether the book is healthy enough to add new short premium.
+
+        The wheel used to read the universe list and nothing else, so it opened into
+        an already-bleeding book: on one W26 morning it sold six new CSPs while the
+        position manager was closing and rolling the same names. v2.1 shipped
+        position_ledger for exactly this coordination and the wheel was never wired
+        to it — so entry decisions had no idea what the book was doing.
+        """
+        limit = getattr(self.cfg.wheel, "max_book_loss_pct", 0.0) or 0.0
+        if limit <= 0 or equity <= 0:
+            return True, ""
+        loss = -self._book_unrealized  # positive when the book is underwater
+        if loss <= 0:
+            return True, ""
+        loss_pct = loss / equity * 100
+        if loss_pct >= limit:
+            return False, (f"book unrealized loss ${loss:,.0f} is {loss_pct:.1f}% of "
+                           f"${equity:,.0f} equity (limit {limit:.0f}%)")
+        return True, ""
+
     def sync_positions(self, positions: list) -> None:
         """Re-derive per-ticker wheel stage from LIVE broker positions.
 
@@ -99,20 +174,59 @@ class WheelStrategy:
         the process can be restarted at any point in the cycle safely.
         """
         short_puts: Dict[str, float] = {}
+        short_calls: Dict[str, float] = {}
         shares: Dict[str, int] = {}
+        # Book health, recorded here because this is the one place that already sees
+        # every live position. run_cycle() consults it before opening anything new.
+        self._book_unrealized = 0.0
+        self._losing_underlyings = set()
+        self._open_short_calls = short_calls
+        self._shares_available = {}
+        self._cost_basis = {}
+        self._spot = {}
         for p in positions or []:
             symbol = (p.get("symbol") or "").upper()
             try:
                 qty = float(p.get("qty", 0) or 0)
             except (TypeError, ValueError):
                 continue
+            try:
+                unrealized = float(p.get("unrealized_pl", 0) or 0)
+            except (TypeError, ValueError):
+                unrealized = 0.0
+            self._book_unrealized += unrealized
+
             m = _OCC_RE.match(symbol)
             if m:
                 underlying, opt_type, strike = m.group(1), m.group(3), int(m.group(4)) / 1000.0
                 if opt_type == "P" and qty < 0:
                     short_puts[underlying] = strike
-            elif qty > 0:
-                shares[symbol] = int(qty)
+                # A short CALL was never detected here. Nothing recorded that a covered
+                # call already existed, so a CC-writing loop would sell another one every
+                # cycle — the guards.py repeat-without-a-record failure, with real orders.
+                if opt_type == "C" and qty < 0:
+                    short_calls[underlying] = strike
+                if unrealized < 0:
+                    self._losing_underlyings.add(underlying)
+            else:
+                if qty > 0:
+                    shares[symbol] = int(qty)
+                    # Shares committed to a resting order cannot back a covered call.
+                    # FJET holds 4,570 with only 309 available (the rest are locked by
+                    # a GTC breakeven sell), so sizing off total qty would submit a
+                    # call we cannot cover and have it rejected.
+                    try:
+                        avail = int(float(p.get("qty_available", qty) or 0))
+                    except (TypeError, ValueError):
+                        avail = int(qty)
+                    self._shares_available[symbol] = max(0, avail)
+                    try:
+                        self._cost_basis[symbol] = float(p.get("avg_entry_price", 0) or 0)
+                        self._spot[symbol] = float(p.get("current_price", 0) or 0)
+                    except (TypeError, ValueError):
+                        pass
+                if unrealized < 0:
+                    self._losing_underlyings.add(symbol)
 
         for ticker, pos in self._positions.items():
             if ticker in short_puts:
@@ -121,6 +235,10 @@ class WheelStrategy:
             elif shares.get(ticker, 0) >= 100:
                 pos.stage = 2
                 pos.shares_held = shares[ticker]
+                # Cost basis lived only in handle_assignment(), so a restart left it
+                # at 0.0 and every CC strike collapsed to ~$0. Take it from the broker.
+                if self._cost_basis.get(ticker):
+                    pos.cost_basis = self._cost_basis[ticker]
             else:
                 pos.stage = 0
 
@@ -217,6 +335,17 @@ class WheelStrategy:
         if pos.stage != 0:
             self._skip(ticker, "stage",
                        f"[WHEEL] {ticker} already in stage {pos.stage}, skipping CSP open")
+            return None
+
+        # --- Guard 0a: don't add premium to a name already losing ---
+        # BTC -> immediate re-entry -> BTC again played out twice on KTOS in one week,
+        # each re-entry into the same falling underlying. Being short a put is already
+        # a bullish position; adding another while the first is underwater doubles a
+        # thesis the market is actively disagreeing with.
+        if getattr(self.cfg.wheel, "skip_losing_underlying", False) and ticker in self._losing_underlyings:
+            self._skip(ticker, "losing_underlying",
+                       f"[WHEEL] {ticker} — already holding this underlying at a loss, "
+                       f"skipping CSP (no averaging into a losing thesis)")
             return None
 
         # --- Guard 0: IV-rank gate (only sell premium when it's rich enough) ---
@@ -348,6 +477,35 @@ class WheelStrategy:
                        f"skipping CSP (premium too thin)")
             return None
 
+        # --- Guard 5b: expected-value gates, measured against the underlying's own
+        # 1-sigma move over the holding period.
+        #
+        # The credit floors above are absolute: they bound the premium but say nothing
+        # about what is being risked to earn it. And select_csp_strike() places every
+        # name at the same ~6.25% OTM regardless of volatility, so the SAME strike
+        # distance is far away on a quiet name and inside a normal week's range on
+        # KTOS or RKLB. Both gates fail OPEN when realized vol is unavailable — an
+        # unmeasurable vol must not become a silent second IV gate.
+        otm_mult = getattr(self.cfg.wheel, "min_otm_vol_mult", 0.0) or 0.0
+        credit_mult = getattr(self.cfg.wheel, "min_credit_vs_expected_move", 0.0) or 0.0
+        if otm_mult or credit_mult:
+            dte = max(1, (date.fromisoformat(expiry) - date.today()).days)
+            exp_move = self._expected_move(ticker, current_price, dte)
+            if exp_move and exp_move > 0:
+                otm_distance = current_price - actual_strike
+                if otm_mult and otm_distance < otm_mult * exp_move:
+                    self._skip(ticker, "strike_inside_vol",
+                               f"[WHEEL] {ticker} — strike ${actual_strike:.2f} is only "
+                               f"${otm_distance:.2f} OTM vs a {dte}d 1-sigma move of "
+                               f"${exp_move:.2f} (need {otm_mult:.1f}x), skipping CSP")
+                    return None
+                if credit_mult and bid < credit_mult * exp_move:
+                    self._skip(ticker, "credit_vs_move",
+                               f"[WHEEL] {ticker} — credit ${bid:.2f}/sh is only "
+                               f"{bid / exp_move:.0%} of the {dte}d 1-sigma move "
+                               f"${exp_move:.2f} (need {credit_mult:.0%}), skipping CSP")
+                    return None
+
         # --- Sizing: fill the authorized capacity instead of always selling one ---
         # qty is the largest number of contracts that satisfies EVERY cap at once.
         # Previously hardcoded to 1, which left up to 75% of a name's authorized
@@ -454,8 +612,46 @@ class WheelStrategy:
         if pos.stage != 2 or pos.shares_held < 100:
             return None
 
+        # Size to AVAILABLE shares, not held shares. Shares committed to a resting
+        # order cannot cover a call; FJET holds 4,570 with 309 available.
+        # Already short a call on this name — do not stack another. sync_positions()
+        # records live short calls for exactly this check.
+        if ticker in getattr(self, "_open_short_calls", {}):
+            self._skip(ticker, "cc_already_open",
+                       f"[WHEEL] {ticker} — covered call already open at "
+                       f"${self._open_short_calls[ticker]:.2f}, skipping CC")
+            return None
+
+        available = self._shares_available.get(ticker, pos.shares_held)
+        qty = int(available // 100)
+        if qty < 1:
+            self._skip(ticker, "cc_no_free_shares",
+                       f"[WHEEL] {ticker} — {available} shares free of {pos.shares_held} held, "
+                       f"not enough to cover a call, skipping CC")
+            return None
+
+        spot = self._spot.get(ticker, 0.0)
+        basis = pos.cost_basis or 0.0
         markup = self.cfg.wheel.cc_strike_markup_pct / 100
-        cc_strike = round(pos.cost_basis * (1 + markup) * 2) / 2
+        cc_strike = round(basis * (1 + markup) * 2) / 2
+
+        # A holding far below its basis prices a basis-derived strike so far OTM that
+        # the bid is ~$0.00 — FJET's basis strike is $5.81 against a $3.86 spot. Price
+        # off spot instead once the position is past underwater_cc_loss_pct. The
+        # trade-off is explicit: this strike sits BELOW cost basis, so a recovery is
+        # capped there. That is the decision being made, not an accident.
+        underwater_pct = getattr(self.cfg.wheel, "underwater_cc_loss_pct", 0.0) or 0.0
+        if underwater_pct and spot > 0 and basis > 0:
+            loss_pct = (basis - spot) / basis * 100
+            if loss_pct >= underwater_pct:
+                uw_markup = getattr(self.cfg.wheel, "underwater_cc_markup_pct", 12.0) / 100
+                cc_strike = round(spot * (1 + uw_markup) * 2) / 2
+                print(f"[WHEEL] {ticker} — {loss_pct:.1f}% below basis ${basis:.2f}; "
+                      f"pricing CC off spot ${spot:.2f} → strike ${cc_strike:.2f} "
+                      f"(caps recovery at that strike)")
+
+        if cc_strike <= 0:
+            return None
         expiry = self.target_expiry()
 
         contracts = self._alpaca.get_options_contracts(ticker, expiry)
@@ -479,7 +675,7 @@ class WheelStrategy:
         try:
             order = self._alpaca.submit_option_order(
                 symbol=target["symbol"],
-                qty=1,
+                qty=qty,
                 side="sell",
                 order_type="limit",
                 limit_price=round(cc_bid, 2),
@@ -534,6 +730,20 @@ class WheelStrategy:
             except Exception as e:
                 print(f"[WHEEL] signal-candidate lookup failed ({e})")
 
+        # Book-health gate — checked ONCE per cycle before any candidate is evaluated.
+        # A stressed book is a property of the book, not of any one ticker, so this
+        # belongs here rather than inside open_csp().
+        try:
+            equity = float(self._alpaca.get_account().get("equity", 0) or 0) if self._alpaca else 0.0
+        except Exception:
+            equity = 0.0
+        ok, reason = self.book_health(equity)
+        if not ok:
+            self._skip("_book", "book_loss",
+                       f"[WHEEL] no new CSPs — {reason}",
+                       metadata={"reason_detail": reason}, journal=True)
+            return 0
+
         candidates = [t for t in universe
                       if t not in self._quarantined and self._positions[t].stage == 0]
         self._report_untradeable_universe()
@@ -553,4 +763,20 @@ class WheelStrategy:
         for ticker, ivr, _sort_key in ranked:
             if self.open_csp(ticker, ivr=ivr) is not None:
                 placed += 1
+
+        # Covered calls on shares we already hold. open_cc() was previously reachable
+        # ONLY from handle_assignment(), so a holding that arrived any other way (an
+        # equity starter, a restart after assignment) was never written against — the
+        # six-week FJET "CC eligible, no action" finding.
+        #
+        # Quarantined names ARE included here on purpose: quarantine exists to stop new
+        # RISK, and a covered call against shares already owned reduces it.
+        if getattr(self.cfg.wheel, "write_covered_calls", False):
+            for ticker, pos in self._positions.items():
+                if pos.stage == 2 and pos.shares_held >= 100:
+                    try:
+                        if self.open_cc(ticker) is not None:
+                            placed += 1
+                    except Exception as e:
+                        print(f"[WHEEL] {ticker} — CC attempt failed: {e}")
         return placed
