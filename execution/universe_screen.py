@@ -291,6 +291,11 @@ def run_screen(alpaca_client=None, settings=None, promote: bool = False,
 
 def format_report(result: dict, cfg=None) -> str:
     """Human-readable screen result for the journal / terminal."""
+    if result.get("skipped"):
+        return (f"\nScreen did not run — {result['skipped']}.\n"
+                "Option spreads are unreliable outside regular trading hours, and the "
+                "screen would reject liquid names as illiquid. It runs Mondays at 11:00 ET.\n")
+
     passed, rejected = result["passed"], result["rejected"]
     lines = ["", f"PASSED ({len(passed)}) — ranked by lowest correlation to the book", ""]
     lines.append(f"  {'tkr':6s} {'price':>9s} {'maxCorr':>8s} {'with':>6s} {'spread':>7s}")

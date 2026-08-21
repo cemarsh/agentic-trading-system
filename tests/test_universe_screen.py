@@ -201,3 +201,10 @@ def test_disabled_screen_is_a_noop():
     result = run_screen(alpaca_client=a, settings=_cfg(enabled=False))
     assert result == {"passed": [], "rejected": []}
     a.get_clock.assert_not_called()
+
+
+def test_report_explains_a_skipped_run():
+    from execution.universe_screen import format_report
+    out = format_report({"passed": [], "rejected": [], "skipped": "market closed"})
+    assert "did not run" in out and "market closed" in out
+    assert "PASSED" not in out          # no empty tables in the email
