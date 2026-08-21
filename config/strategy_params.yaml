@@ -328,3 +328,85 @@ hedge:
 database:
   table: "decision_logic"
   state_file: "./logs/agent_state.json"
+
+# ============================================================
+# UNIVERSE SCREENING (2026-08-21) — pick names by tradability, not by theme.
+#
+# Measured on this date: 20 of the 23 wheel tickers sat in four sector buckets
+# (defense / space / nuclear / critical minerals) whose daily returns correlate at
+# 0.63 with each other:
+#
+#              defense  space  nuclear  minerals
+#   defense       --     0.78    0.56     0.54
+#   space        0.78     --     0.64     0.54
+#   nuclear      0.56    0.64     --      0.71
+#   minerals     0.54    0.54    0.71      --
+#
+# Those are four separate buckets above, each with its own 20% sector cap, which
+# reads as diversification and is not: 4 x 20% is 80% of the book in ONE macro
+# position — the American industrial-policy trade. Every name was hand-picked off
+# that thesis, and the entire quarter's loss (-$7,970 of -$8,135) sits inside it.
+# The only genuinely uncorrelated sleeve is ABT/CSCO/GEO at 0.12, and it is 3 names.
+#
+# So selection stops being thematic. A candidate earns its place by fitting the
+# account, having a real two-sided options market, and NOT moving with what we
+# already hold. Correlation is measured against LIVE HOLDINGS, not this YAML, and
+# uses the maximum rather than the average — a name uncorrelated to nine holdings
+# and 0.9 to the tenth is a concentration risk that an average would hide.
+#
+# Screened names are PROMOTED into the dynamic universe rather than written here.
+# The IV gate is fail-closed, so a new name cannot trade for ~15 trading days no
+# matter how well it screens; promotion is what puts it in iv_tracker's snapshot
+# set and starts that clock. See execution/universe_screen.py.
+# ============================================================
+universe:
+  enabled: true
+  max_correlation: 0.60          # Reject a candidate above this vs any current holding
+  correlation_lookback_days: 60
+  max_spread_pct: 25.0           # NBBO width as % of mid on the strike we would sell
+  max_new_per_run: 4             # Widen gradually; never rebuild the book in one pass
+  max_promoted: 12
+  # Seed pool: liquid optionable names UNDER ~$125 (the per-trade cap at this equity),
+  # chosen to span the sectors the book has no exposure to at all — financials,
+  # healthcare, staples, discretionary, tech, utilities, comms, transport, REITs.
+  # This is still a list, but the SELECTION CRITERION is now mechanical: nothing here
+  # is picked for a story, and anything correlated to the existing book gets rejected
+  # by the screen regardless of which line it sits on.
+  seed_pool:
+    # Financials — zero current exposure
+    - "BAC"   # Bank of America
+    - "SCHW"  # Charles Schwab
+    - "USB"   # US Bancorp
+    - "KEY"   # KeyCorp
+    # Healthcare — only ABT today
+    - "PFE"   # Pfizer
+    - "MRK"   # Merck
+    - "CVS"   # CVS Health
+    - "BMY"   # Bristol Myers Squibb
+    # Consumer staples — zero
+    - "KO"    # Coca-Cola
+    - "MO"    # Altria
+    - "GIS"   # General Mills
+    - "KVUE"  # Kenvue
+    # Consumer discretionary — zero
+    - "F"     # Ford
+    - "SBUX"  # Starbucks
+    - "NKE"   # Nike
+    # Technology — only CSCO today
+    - "INTC"  # Intel
+    - "MU"    # Micron
+    - "HPQ"   # HP
+    # Utilities — VST/CEG are parked and are nuclear-correlated anyway
+    - "SO"    # Southern Company
+    - "AEP"   # American Electric Power
+    - "EXC"   # Exelon
+    # Communications — zero
+    - "T"     # AT&T
+    - "VZ"    # Verizon
+    - "WBD"   # Warner Bros Discovery
+    # Transport — zero
+    - "DAL"   # Delta Air Lines
+    - "CSX"   # CSX
+    # REITs — zero
+    - "O"     # Realty Income
+    - "VICI"  # VICI Properties

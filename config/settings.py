@@ -118,6 +118,18 @@ class ProtectionConfig:
 
 
 @dataclass
+class UniverseConfig:
+    """Mechanical universe screening — see execution/universe_screen.py."""
+    enabled: bool = False
+    max_correlation: float = 0.60          # reject a candidate more correlated than this to the BOOK
+    correlation_lookback_days: int = 60
+    max_spread_pct: float = 25.0           # NBBO width as % of mid on the strike we'd sell
+    max_new_per_run: int = 4               # don't rebuild the universe in one pass
+    max_promoted: int = 12                 # ceiling on screened names held in the dynamic universe
+    seed_pool: List[str] = field(default_factory=list)
+
+
+@dataclass
 class RegimeConfig:
     bear_spy_threshold: float
     extreme_spy_threshold: float
@@ -196,6 +208,7 @@ class Settings:
     anthropic: AnthropicConfig
     position_management: PositionManagementConfig = None
     risk: RiskConfig = None
+    universe: UniverseConfig = None
     live_gates: LiveGatesConfig = None
     feeds: FeedsConfig = None
 
@@ -254,6 +267,10 @@ def load() -> Settings:
         risk=RiskConfig(**{
             k: v for k, v in (raw.get("risk") or {}).items()
             if k in RiskConfig.__dataclass_fields__
+        }),
+        universe=UniverseConfig(**{
+            k: v for k, v in (raw.get("universe") or {}).items()
+            if k in UniverseConfig.__dataclass_fields__
         }),
         live_gates=LiveGatesConfig(**{
             k: v for k, v in (raw.get("live_gates") or {}).items()
