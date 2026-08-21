@@ -326,6 +326,69 @@ live at 25% of capital for a quarter. Run `python execution/live_readiness.py` a
 scorecard. Target is annualized % (15% is genuinely good), **never** dollars/day — reaching
 for an income target is how a book ends up in $98 puts and a $26k IPO position.
 
+## Reporting & Structural Fixes (v2.3, 2026-08-21)
+
+### The report tier that answers "is this working"
+The daily journal and weekly wrap-up answer *what happened*. Neither answered *are we getting
+anywhere* — a question that only resolves across enough weeks for a trend to separate from
+noise. Three tiers now exist, and every one of them leads with the same deterministic
+**Needle Movement** block (`execution/performance.py`, no LLM): equity curve with max
+drawdown, closed-trade win rate / profit factor / expectancy, and capital deployment counting
+short-put collateral the way the sector cap does.
+
+| Tier | Fires | Output | Answers |
+|------|-------|--------|---------|
+| Weekly | Fri 16:15 ET | `journal/weekly/YYYY-Www.md` | What the system did this week |
+| Monthly | 1st, pre-market | `journal/monthly/YYYY-MM.md` | What changed, **what did NOT**, what's next |
+| Quarterly | 1st of Jan/Apr/Jul/Oct | `journal/quarterly/<label>.md` | Progress, negatives, structural problems |
+
+The monthly's *What Did NOT Change* section counts how many weeks each finding recurred
+unactioned — that section is the point of the report. Both prompts are required to separate
+**engineering progress from financial progress**; conflating them is what made a losing
+quarter read as a stalled one. All three are regenerable on demand:
+
+```bash
+python execution/weekly_journal.py --week 2026-08-21 [--no-email]
+python execution/period_reports.py --monthly --month 2026-07
+python execution/period_reports.py --quarterly --trailing   # last 3 months from today
+```
+
+### What the first quarterly found
+Trailing 3 months to 2026-08-21: equity **$100,037 → $84,438 (−15.59%)**, max drawdown 16.79%,
+55 closed trades, win rate 25.5%, **profit factor 0.23**, expectancy **−$147.91/trade**, with
+79.8% of capital idle. Engineering progress was real; financial progress was absent. Five root
+causes, all now fixed — and two of the quarterly's own diagnoses did not survive contact with
+the source:
+
+| # | Cause | Fix |
+|---|-------|-----|
+| 1 | `no_auto_manage` dropped tickers out of `sync_positions()`, removing their trailing stop — equity longs had **no exit at all** | `protection.max_equity_loss_pct` 25%, read off live broker positions, cancels resting sells first |
+| 2 | Stop **did** fire at −250%; its limit never filled and the working-order guard then muted the position all day → −852% | Age working orders, cancel and re-price crossing the spread harder each attempt |
+| 3 | Wheel read the universe list, never the ledger — opened into an already-bleeding book | `max_book_loss_pct` 15% + `skip_losing_underlying` |
+| 4 | Every strike at the same ~6.25% OTM regardless of volatility — inside 1σ on KTOS, RKLB, CCJ, ABT | Strike **selection** and gate both scale to the underlying's 1σ move over the holding period |
+| 5 | Classifier matched substrings: `"ai"` in **ai**rcraft/d**ai**ry, `"ice"` in pr**ice**/Off**ice** | Whole-word matching with optional plural |
+
+### The concentration nobody was measuring
+20 of 23 wheel tickers sat in four sector buckets — defense, space, nuclear, critical minerals —
+whose daily returns correlate at **0.63** with each other (defense↔space 0.78, nuclear↔minerals
+0.71). Four buckets with a 20% cap each reads as diversification and is not: **80% of the book
+in one macro position**. The entire quarter's loss is inside it (−$7,970 of −$8,135); the only
+uncorrelated sleeve is ABT/CSCO/GEO at 0.12, three names.
+
+`execution/universe_screen.py` replaces thematic selection with four mechanical tests — one
+contract fits the per-trade cap, puts exist at the target expiry, the NBBO is tight enough not
+to eat the credit, and **correlation to the live book** is under `universe.max_correlation`.
+Correlation uses the *maximum*, not the average, since a name uncorrelated to nine holdings and
+0.9 to the tenth is exactly the concentration an average hides. Passing names are handed to
+`dynamic_universe.promote()` rather than written into the YAML — the IV gate is fail-closed, so
+promotion into the snapshot set is what starts the 15-day clock. Runs Mondays 11:00 ET and
+**refuses to run outside RTH**: stale after-hours quotes made a first run reject KO, T and SBUX
+as illiquid.
+
+The deeper monoculture is not sectoral — **every trade is a short put**, i.e. short-vol and
+long-delta. Diversifying tickers alone does not stop a drawdown hitting everything at once. A
+second, uncorrelated engine is the next phase, gated on evidence the wheel's expectancy turned.
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
@@ -424,11 +487,25 @@ trading/
 │   ├── policy_monitor.py        # Policy intelligence scanner (L1–L4)
 │   ├── hardware_monitor.py      # CPU/temp threshold enforcement
 │   ├── notifier.py              # Resend email + Slack #agentic-ops-alerts
-│   └── db_logger.py             # PostgreSQL — decision_logic, strategy_analysis, strategy_lessons
-└── tests/
-    ├── test_alpaca_client.py
-    ├── test_wheel_strategy.py
-    └── test_protective_logic.py
+│   ├── db_logger.py             # PostgreSQL — decision_logic, strategy_analysis, strategy_lessons
+│   ├── performance.py           # Deterministic "Needle Movement" metrics (no LLM)
+│   ├── weekly_journal.py        # Friday wrap-up (--week to regenerate)
+│   ├── period_reports.py        # Monthly + quarterly reviews (--monthly / --quarterly)
+│   ├── universe_screen.py       # Correlation-aware candidate screening (Mon 11:00 ET, RTH only)
+│   └── dynamic_universe.py      # Signal/screen-promoted candidates — starts the IV clock
+├── journal/
+│   ├── YYYY-MM-DD.md            # Daily wrap-ups
+│   ├── weekly/YYYY-Www.md       # Weekly
+│   ├── monthly/YYYY-MM.md       # Monthly — "what did NOT change"
+│   └── quarterly/               # Quarterly reviews
+└── tests/                       # 192 tests, <1s
+    ├── test_performance.py      # Needle metrics + rendering
+    ├── test_period_reports.py   # Monthly/quarterly source selection
+    ├── test_universe_screen.py  # Correlation + market-hours guard
+    ├── test_equity_backstop.py  # Catastrophic loss floor
+    ├── test_stale_order_reprice.py
+    ├── test_wheel_entry_quality.py
+    └── test_covered_calls.py
 ```
 
 ---

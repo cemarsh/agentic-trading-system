@@ -1,7 +1,7 @@
 # Agentic Trading System — TODO
 
-**Last Updated**: 2026-08-07
-**Status**: Live (Paper) — VM 117 home-workstation, HEAD `ad4bb52`. v2.2 throughput release: diagnosed and fixed why the book sat at 13.8% allocation with one open contract. Equity $85.8k. Simulated cycle now deploys $30.4k collateral across 6 contracts vs $2.8k across 1, with no risk limit loosened except a temporary IV-floor correction.
+**Last Updated**: 2026-08-21
+**Status**: Live (Paper) — VM 117 home-workstation, HEAD `4e2fa04`. v2.3: report tier (weekly/monthly/quarterly with deterministic Needle Movement metrics), five structural risk fixes from the first quarterly, and correlation-based universe screening. 192 tests. Equity $83.7k. The quarterly's verdict is the headline: engineering progress real, financial progress absent — −15.59% over the trailing quarter, profit factor 0.23. Monday 08-24 is the first live test of the fixes (09:30) and the first valid universe screen (11:00).
 
 ---
 
@@ -459,3 +459,25 @@ onto it. Deployed HEAD `c7df0ee`, 189 tests.
   Gated on 2–3 weeks of evidence that the wheel's expectancy actually turned.
 - [ ] **`strategy_analysis` still has 0 rows.** Whatever we add next, the advisor that was
   supposed to score it has never run. Fix that before trusting any attribution.
+
+## 2026-08-21 (wrapup) — report plumbing verified end-to-end
+
+- [x] **Scheduler replayed over 60 days** to confirm each trigger fires once per period:
+  monthly next 2026-09-01 (reporting August), quarterly next 2026-10-01 (reporting Q3),
+  universe screen Mondays 11:00 ET, weekly each Friday 16:15 ET.
+- [x] **Added `weekly_journal.py --week`.** The monthly and quarterly had CLIs; the weekly
+  did not, so the only way to produce one was to wait for Friday. That mattered: W34 fired
+  at 16:15 ET, ~80 min BEFORE the Needle block deployed, and its dedup key was already set —
+  the enhanced weekly would have been invisible until W35.
+- [x] **Two rendering bugs found by regenerating W34** (a 0-win / 7-loss week) — both in the
+  block that leads every report, both making a losing week read as a winning one:
+  profit factor printed "n/a (no losing trades)" when the truth was *no winning trades*
+  (0.0 means two opposite things), and best/worst markers came from rank position rather
+  than sign, so the three least-bad losses rendered with green ticks.
+
+**Standing watch list — Monday 2026-08-24:**
+- [ ] 09:30 — first live test of the five structural fixes. Expect FEWER trades, not more.
+- [ ] 11:00 — first valid universe screen (RTH). Watch the real pass rate on spread.
+- [ ] Confirm the FJET covered call writes: 3 contracts near $4.50, log line "pricing CC off spot".
+- [ ] ~08-28 — the 11 new tickers clear MIN_HISTORY_DAYS and become IV-eligible.
+- [ ] Sanity-check realized vol against a second source (ABT at ~40% annualized looks high).
