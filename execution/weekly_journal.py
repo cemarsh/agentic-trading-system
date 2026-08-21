@@ -471,3 +471,43 @@ def weekly_wrapup(
             print(f"[WEEKLY] email failed: {e}")
 
     return path
+
+
+# ---------------------------------------------------------------------------
+# CLI — regenerate a week on demand (idempotent; overwrites that week's file)
+# ---------------------------------------------------------------------------
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Generate a weekly trading wrap-up")
+    ap.add_argument("--week", help="any date inside the target ISO week (YYYY-MM-DD); default today")
+    ap.add_argument("--no-email", action="store_true", help="write the file but do not email")
+    args = ap.parse_args()
+
+    cfg = cfg_module.load()
+    ref = date.fromisoformat(args.week) if args.week else datetime.now(MARKET_TZ).date()
+
+    from execution.alpaca_client import AlpacaClient
+    alpaca = AlpacaClient(settings=cfg)
+
+    notifier = None
+    if not args.no_email:
+        try:
+            from execution.notifier import Notifier
+            notifier = Notifier(settings=cfg)
+        except Exception as e:
+            print(f"[WEEKLY] notifier unavailable ({e}) — writing file only")
+
+    regime = "NEUTRAL"
+    try:
+        from execution.regime_detector import RegimeDetector
+        regime = RegimeDetector(settings=cfg, alpaca_client=alpaca).detect() or "NEUTRAL"
+    except Exception:
+        pass
+
+    weekly_wrapup(ref_date=ref, alpaca_client=alpaca, regime=regime,
+                  notifier=notifier, settings=cfg)
+
+
+if __name__ == "__main__":
+    main()
