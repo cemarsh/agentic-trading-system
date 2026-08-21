@@ -114,8 +114,14 @@ class WheelStrategy:
         result: Optional[float] = None
         lookback = int(getattr(self.cfg.wheel, "realized_vol_lookback_days", 30) or 30)
         try:
+            # `start` is REQUIRED to get more than one day of history on the free IEX
+            # feed — without it the endpoint returns only today's bar (and nothing at
+            # all outside RTH), so every vol lookup came back None and both EV gates
+            # silently failed open. Pad the window ~2.2x for weekends and holidays.
+            start = (date.today() - timedelta(days=int(lookback * 2.2) + 5)).isoformat()
             # +1 bar because N log returns need N+1 closes.
-            bars = self._alpaca.get_bars(ticker, "1Day", lookback + 1) if self._alpaca else []
+            bars = (self._alpaca.get_bars(ticker, "1Day", lookback + 1, start=start)
+                    if self._alpaca else [])
             closes = [float(b["c"]) for b in (bars or []) if b.get("c")]
             if len(closes) >= 10:
                 import math
