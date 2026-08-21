@@ -309,8 +309,17 @@ def build_needle_section(metrics: dict, label: str) -> str:
 
     # --- Closed trades ---
     if tr.get("total_trades"):
+        # Profit factor is 0.0 in two completely different situations and they must not
+        # print the same way. gross_loss == 0 means the ratio is undefined (nothing lost);
+        # gross_win == 0 with real losses means it is genuinely zero. Labelling the second
+        # as "no losing trades" inverted a 0-win / 7-loss week into a clean sheet.
         pf = tr["profit_factor"]
-        pf_text = f"{pf:.2f}" if pf else "n/a (no losing trades)"
+        if tr.get("gross_loss", 0) <= 0:
+            pf_text = "n/a (no losing trades)"
+        elif pf <= 0:
+            pf_text = "0.00 (no winning trades)"
+        else:
+            pf_text = f"{pf:.2f}"
         lines += [
             "### Closed Trades",
             "",
@@ -326,14 +335,15 @@ def build_needle_section(metrics: dict, label: str) -> str:
             f"| Expectancy per trade | ${tr['expectancy']:+,.2f} |",
             "",
         ]
-        best = sorted(tr["by_ticker"].items(), key=lambda x: -x[1]["pnl"])
-        if best:
+        ranked = sorted(tr["by_ticker"].items(), key=lambda x: -x[1]["pnl"])
+        if ranked:
+            # The marker comes from the SIGN, never from rank position. Ranking alone put
+            # a green tick on "ALB: -$273.00" in a week where every single trade lost.
+            shown = ranked[:3] + [r for r in ranked[-3:] if r not in ranked[:3]]
             lines += ["**Best / worst tickers:**", ""]
-            for ticker, s in best[:3]:
-                lines.append(f"- ✅ {ticker}: ${s['pnl']:+,.2f} ({s['wins']}/{s['trades']} wins)")
-            for ticker, s in reversed(best[-3:]):
-                if ticker not in [t for t, _ in best[:3]]:
-                    lines.append(f"- ❌ {ticker}: ${s['pnl']:+,.2f} ({s['wins']}/{s['trades']} wins)")
+            for ticker, s in shown:
+                mark = "✅" if s["pnl"] > 0 else "❌"
+                lines.append(f"- {mark} {ticker}: ${s['pnl']:+,.2f} ({s['wins']}/{s['trades']} wins)")
             lines.append("")
     elif tr.get("available"):
         lines += ["### Closed Trades", "", "_No closed trades logged in this period._", ""]

@@ -230,3 +230,54 @@ def test_needle_section_survives_all_sources_down():
     out = build_needle_section(_metrics(), "June 2026")
     assert "Equity curve unavailable" in out
     assert out.startswith("## Needle Movement")
+
+
+def test_all_losses_week_is_not_labelled_a_clean_sheet():
+    """0 wins / 7 losses printed 'n/a (no losing trades)' — exactly inverted."""
+    metrics = _metrics(trades={
+        "total_trades": 7, "wins": 0, "losses": 7, "win_rate": 0.0,
+        "total_pnl": -1111.0, "gross_win": 0.0, "gross_loss": 1111.0,
+        "profit_factor": 0.0, "avg_win": 0.0, "avg_loss": -158.71,
+        "expectancy": -158.71, "available": True,
+        "by_ticker": {"ALB": {"trades": 1, "pnl": -273.0, "wins": 0},
+                      "MP": {"trades": 2, "pnl": -328.0, "wins": 0},
+                      "KTOS": {"trades": 4, "pnl": -510.0, "wins": 0}},
+        "by_strategy": {},
+    })
+    out = build_needle_section(metrics, "Week 2026-W34")
+    assert "0.00 (no winning trades)" in out
+    assert "no losing trades" not in out
+    # And no green ticks on losses.
+    assert "✅" not in out
+    assert out.count("❌") == 3
+
+
+def test_markers_follow_sign_not_rank():
+    metrics = _metrics(trades={
+        "total_trades": 4, "wins": 1, "losses": 3, "win_rate": 25.0,
+        "total_pnl": -300.0, "gross_win": 200.0, "gross_loss": 500.0,
+        "profit_factor": 0.4, "avg_win": 200.0, "avg_loss": -166.67,
+        "expectancy": -75.0, "available": True,
+        "by_ticker": {"VST": {"trades": 1, "pnl": 200.0, "wins": 1},
+                      "MP": {"trades": 1, "pnl": -100.0, "wins": 0},
+                      "KTOS": {"trades": 2, "pnl": -400.0, "wins": 0}},
+        "by_strategy": {},
+    })
+    out = build_needle_section(metrics, "Week")
+    assert "✅ VST" in out
+    assert "❌ MP" in out and "❌ KTOS" in out
+    assert "| Profit factor | 0.40 |" in out
+
+
+def test_no_ticker_is_listed_twice_when_fewer_than_six():
+    metrics = _metrics(trades={
+        "total_trades": 2, "wins": 1, "losses": 1, "win_rate": 50.0,
+        "total_pnl": 50.0, "gross_win": 100.0, "gross_loss": 50.0,
+        "profit_factor": 2.0, "avg_win": 100.0, "avg_loss": -50.0,
+        "expectancy": 25.0, "available": True,
+        "by_ticker": {"AAA": {"trades": 1, "pnl": 100.0, "wins": 1},
+                      "BBB": {"trades": 1, "pnl": -50.0, "wins": 0}},
+        "by_strategy": {},
+    })
+    out = build_needle_section(metrics, "Week")
+    assert out.count("AAA") == 1 and out.count("BBB") == 1
