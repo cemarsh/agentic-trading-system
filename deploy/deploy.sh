@@ -18,6 +18,33 @@ git fetch origin --quiet
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
+# Journals and MEM.md are WRITTEN ON THIS HOST by the loop and exist nowhere else.
+# The stash below takes -u, so without this they get swept into a stash on every
+# deploy and never reach the repo — eight such stashes had silently accumulated,
+# holding 46 journals including six weekly wrap-ups. Commit them before syncing.
+if [ -n "$(git status --porcelain journal/ MEM.md 2>/dev/null)" ]; then
+  echo "==> Committing locally-generated journals before sync"
+  git add -A journal/ MEM.md 2>/dev/null || true
+  git -c user.name="trading-vm" -c user.email="noreply@cloudmagicgroup.com" \
+      commit -q -m "chore(journal): loop-generated journals from $(hostname) $(date +%Y-%m-%d)" || true
+
+  # Rebase onto origin/main so the push is a fast-forward, then push. The sync
+  # below is `reset --hard origin/main`, so a commit that is NOT on origin would
+  # be destroyed by it — if either step fails we save a recovery branch first and
+  # say so loudly, rather than silently losing the only copy of these files.
+  if git pull --rebase --quiet origin main && git push origin HEAD:main --quiet; then
+    echo "    journals committed and pushed"
+  else
+    RECOVERY="journal-recovery-$(date +%s)"
+    git rebase --abort 2>/dev/null || true
+    git branch "$RECOVERY" 2>/dev/null || true
+    echo "    !! journal push FAILED — saved to branch $RECOVERY (push it manually)"
+  fi
+  git fetch origin --quiet
+  LOCAL=$(git rev-parse HEAD)
+  REMOTE=$(git rev-parse origin/main)
+fi
+
 if [ "$LOCAL" != "$REMOTE" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "==> Syncing to origin/main ($REMOTE) — stashing any local edits first"
   git stash push -u -m "deploy-autostash-$(date +%s)" || true
