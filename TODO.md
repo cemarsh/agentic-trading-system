@@ -399,3 +399,63 @@ with its reasoning — anything on that list must carry a stated plan, and comes
   annualized), which is high for Abbott and suggests the free IEX daily feed may be sparse or
   gappy. Overestimated vol makes the OTM gate stricter and silently blocks good trades.
 - [ ] **The 11 new tickers become IV-eligible ~08-28** (15 trading days from 08-07).
+
+## 2026-08-21 (later still) — the concentration nobody was measuring
+
+Prompted by a direct question: the founding tenet was government-action trading, and the
+system was supposed to have evolved past depending on it. It had not. It had narrowed
+onto it. Deployed HEAD `c7df0ee`, 189 tests.
+
+**What the measurement showed:**
+- **20 of 23 wheel tickers** sit in four sector buckets — defense, space, nuclear,
+  critical minerals — whose daily returns correlate at **0.63** with each other
+  (defense↔space 0.78, nuclear↔minerals 0.71). Those are four separate buckets in the
+  YAML with a 20% cap each, which reads as diversification and is not: 4 × 20% is **80%
+  of the book in one macro position**. The sector caps were measuring the wrong thing.
+- The only genuinely uncorrelated sleeve is ABT/CSCO/GEO at **0.12** — three names.
+- **The entire quarter's loss is inside the correlated sleeve**: −$7,970 of −$8,135.
+  "Everything else" is −$165, and only because it saw 4 trades against 51.
+- **The 10-strategy framework was never built.** `directives/strategy_framework.md`
+  specifies value/growth/momentum/trend/mean-reversion/S&R/breakout/dividend/event/
+  rotation. `strategy_analysis` has **0 rows, ever**. The advisor has never written a
+  record. `policy_monitor` logged 51 decisions and produced 0 trades.
+- The deeper monoculture is not sectoral: **every trade is a short put.** That is
+  short-vol and long-delta. Diversifying tickers alone would not change that a drawdown
+  hits every position at once — which is what a 0.23 profit factor over 55 trades is.
+
+**Decision (user): universe first, then a second engine, wheel validated in between.**
+
+**Shipped — `execution/universe_screen.py`:**
+- [x] Selection is now mechanical: one contract fits the per-trade cap, puts exist at the
+  target expiry, NBBO tight enough not to eat the credit, and **correlation to the
+  current book** under `universe.max_correlation` (0.60).
+- [x] Correlation is measured against **live holdings**, not the YAML — the risk that
+  matters is present exposure — and uses the **maximum**, not the average: a name
+  uncorrelated to nine holdings and 0.9 to the tenth is precisely the concentration an
+  average hides. Sign is preserved so a negatively correlated name reads as a diversifier.
+- [x] Passing names go to `dynamic_universe.promote()`, not into the YAML. The IV gate is
+  fail-closed, so promotion into iv_tracker's snapshot set is what starts the 15-day
+  clock; writing them to the YAML would have looked instant and been inert for 3 weeks.
+- [x] Seed pool spans the nine sectors the book has **zero** exposure to (financials,
+  healthcare, staples, discretionary, tech, utilities, comms, transport, REITs), all
+  under the ~$125 the per-trade cap allows.
+- [x] **Market-hours guard.** The first run at 17:40 ET passed 1 of 28 and rejected KO at
+  a 55% spread, T at 186%, SBUX at 183% — three of the most liquid options markets there
+  are. Stale after-hours quotes, not illiquidity. `run_screen()` now refuses when the
+  clock says closed rather than returning a confident wrong answer, and the weekly
+  trigger is **Monday 11:00 ET, mid-session** — not pre-market, for the same reason the
+  IV snapshot was moved off 8:30.
+
+**Open / next:**
+- [ ] **Re-run the screen during RTH** — Monday 08-24 11:00 ET, automatically. The only
+  honest read so far is that AEP fails on price ($12,570 vs a $12,559 cap) and INTC
+  passes at +0.26 correlation. Everything else needs live quotes.
+- [ ] **Watch the seed pool's real pass rate.** If most names still fail on spread during
+  RTH, the 25% cap is too tight for 2-week expiries on $30–90 underlyings and should be
+  measured before it is loosened.
+- [ ] **Then the second engine.** The wheel is short-vol/long-delta; a genuine complement
+  has to make money when that loses. The natural candidate is upgrading the crude
+  "regime says BEAR → buy SQQQ" hedge into a real trend sleeve that can hold short.
+  Gated on 2–3 weeks of evidence that the wheel's expectancy actually turned.
+- [ ] **`strategy_analysis` still has 0 rows.** Whatever we add next, the advisor that was
+  supposed to score it has never run. Fix that before trusting any attribution.
