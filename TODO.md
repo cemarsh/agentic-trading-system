@@ -515,10 +515,33 @@ cleared on the first probe.
 
 **Still open:**
 - [ ] **Commit, push, `deploy.sh`** the two fixes — nothing above is live on VM 117 yet.
-- [ ] **Weekly scan analyzes nothing.** It fires Monday 00:00 ET, and `get_bars(ticker, "1Min", 1)`
-  with no `start` returns no bars before the open, so every ticker is skipped. This, not the
-  crash, is why `strategy_analysis` still has 0 rows.
+- [x] **Weekly scan analyzes nothing (fixed, uncommitted — see below).**
 - [ ] **CapitolTrades 429s** even at the hourly cooldown (~7/trading day) — whale watch has no
   congressional data.
 - [ ] **Regenerate** the 09-11 journal and the missed W37 weekly now that Claude works.
 - [ ] `mypy execution/` stops on a pre-existing module-path error before checking anything.
+
+## 2026-09-15 (later) — the weekly scan never analyzed a ticker
+
+**What broke.** `run_weekly_scan` fires in the Monday pre-market window, in practice at 00:00 ET,
+and priced each ticker with `get_bars(ticker, "1Min", 1)`. With no `start`, that covers today only,
+and at midnight there are no prints yet, so every ticker hit "no price data, skipping". Nothing
+was ever analyzed, logged or emailed — this, not the digest crash, is why `strategy_analysis` has
+0 rows. The CLI `--ticker` path had the same bug. Live check at 06:00 ET: 1-minute bars were
+already back for most names once pre-market prints began, but still empty for LDOS, GEO, ABT,
+FJET and OPTX.
+
+- [x] **`AlpacaClient.get_latest_price`** — latest-trade endpoint (returns the last print at any
+  hour), falling back to the last daily close via `get_bars(..., "1Day", start=...)`; 0.0 if neither.
+- [x] **Scan + CLI use it**, and the scan now logs "analyzed N of M tickers" plus a WARNING when it
+  produces nothing, so this can't go silent again.
+- [x] **Verified** — `tests/test_weekly_scan.py` (5) fails on the old code, passes on the fix; full
+  suite 211 passed (the 2 `test_stale_order_reprice` failures predate this); ruff unchanged.
+  Live dry-run on VM 117 with the market closed: all 23 wheel tickers priced, the scan with Claude
+  stubbed analyzed 23 of 23, and one real `analyze_ticker("GEO")` returned valid JSON (WATCH, 0.52).
+
+**Still open:**
+- [ ] **Commit, push, `deploy.sh`.** First real run: Monday 2026-09-21 00:00 ET — expect 23 rows in
+  `strategy_analysis` and a scan email.
+- [ ] Other 1-minute-bar callers (`position_manager`, `wheel_strategy`, `inverse_etf_hedge`,
+  `universe_screen`) run during RTH and were left alone; revisit only if one gains a pre-market path.
