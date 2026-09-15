@@ -54,6 +54,34 @@
 
 ## Learnings & Annealings
 
+- **2026-09-11**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-10**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-09**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-08**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-04**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-03**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-02**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-09-01**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-08-31**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-08-28**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-08-27**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-08-26**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-08-25**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
+- **2026-08-24**: **RKLB short put — urgent review:** RKLB260918P00075000 is -153% and accelerating (-35% intraday). At 25 DTE, assess whether a roll to a lower strike/later expiry generates any credit. If no roll credit exists (same situation as KTOS), execute BTC immediately at open. Do not let this compound further. Check RKLB spot price before bell — if >$80, intrinsic loss will continue to grow.
+
 - **2026-08-07**: **FJET — define the exit:** With -$7,779 unrealized on a 4,570-share position in a thinly-traded AMEX micro-cap, set a hard rule: if FJET closes below $3.80 (prior day's close), begin partial liquidation of available 309 shares. Document max loss tolerance for this position explicitly. Do not add to it.
 
 - **2026-08-06**: **FJET — requires explicit exit decision:** Define a stop or managed exit threshold NOW. At $3.80 vs $5.70 avg entry, the position needs either a documented hold thesis (with price target and time horizon) or a staged liquidation plan. With only 309 shares available, check margin/borrow constraints. If no thesis exists, begin reducing — do not let -$8.7K unrealized grow further by default.
