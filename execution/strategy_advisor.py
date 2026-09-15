@@ -158,8 +158,10 @@ def generate_digest(period: str, lessons: list, settings=None) -> str:
 
     client = anthropic.Anthropic(api_key=api_key)
 
+    # get_lessons uses RealDictCursor, so ts (TIMESTAMPTZ) is a datetime, not a string —
+    # slicing it directly crashed every weekly/monthly digest. str() handles both.
     lessons_text = "\n".join(
-        f"- {l['ts'][:10]} | {l['ticker']} | strategy={l['strategy_used']} | "
+        f"- {str(l['ts'])[:10]} | {l['ticker']} | strategy={l['strategy_used']} | "
         f"regime={l['regime']} | pnl=${l.get('pnl') or 0:+.2f} | "
         f"outcome={l['outcome']} | lesson: {l['lesson']}"
         for l in lessons
