@@ -48,6 +48,9 @@ HALT_ALERT_PATH = Path("logs/halt_pending_alert.json")
 HEARTBEAT_PATH = Path("logs/heartbeat")
 # DNS/connection blips tolerated for ~10 min (20 × 30s) before halting
 NETWORK_FAILURE_HALT_THRESHOLD = 20
+# Startup recovery re-probes a transient outage in-process on this schedule (the last
+# value repeats) instead of exiting — see _attempt_halt_recovery.
+RECOVERY_PROBE_BACKOFF_SECONDS = (30, 60, 120, 300)
 
 INITIAL_STATE = {
     "verification_trades_done": 0,
@@ -70,6 +73,25 @@ def _is_network_error(exc: Exception) -> bool:
         or "errno -3" in msg
         or "failed to establish a new connection" in msg
     )
+
+
+def _is_server_error(exc: Exception) -> bool:
+    """True for a 5xx from the broker. The fault is on Alpaca's side and clears on its
+    own, so it is transient like a network blip — not an API failure of ours.
+    Counting it against api_retry_limit (3) is what halted the loop ~90s into Alpaca's
+    2026-09-11 outage. AlpacaClient has already retried the request by the time this
+    sees it."""
+    import requests as _req
+    if isinstance(exc, _req.HTTPError):
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            return resp.status_code >= 500
+    return "server error" in str(exc).lower()
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """Network blip or broker 5xx — both self-heal, so neither should end in a hard halt."""
+    return _is_network_error(exc) or _is_server_error(exc)
 
 
 def _is_order_rejection(exc: Exception) -> bool:
@@ -548,9 +570,14 @@ def _attempt_halt_recovery(state: dict, cfg) -> None:
         halted for a human to fix.
       - Otherwise run a LIVE authenticated API probe (get_clock via AlpacaClient,
         which carries Item-3 retries). If it succeeds, connectivity AND credentials
-        are confirmed healthy *now* → clear the halt and resume. If it fails → stay
-        halted. Any auto-recover→re-halt flapping is bounded by the systemd
-        StartLimitBurst, which alerts and stops the unit after a few fast cycles.
+        are confirmed healthy *now* → clear the halt and resume.
+      - If the probe hits a TRANSIENT error (network blip or broker 5xx), wait with
+        backoff and probe again in-process, for as long as the outage lasts. Exiting
+        instead let systemd's StartLimitBurst (5 fast restarts) stop the unit for
+        good: a few minutes of Alpaca 500s on 2026-09-11 became a 3-day outage.
+        While waiting there is no heartbeat, so the deadman check still alerts (and
+        cancels resting orders) during market hours.
+      - Any other probe failure → stay halted (exit 1 → systemd → OnFailure alert).
     """
     reason = state.get("halt_reason", "unknown")
     nf = state.get("network_failures", 0)
@@ -565,20 +592,32 @@ def _attempt_halt_recovery(state: dict, cfg) -> None:
 
     print(f"[RECOVERY] Halt (reason={reason}, network={nf}, api={af}, "
           f"last_api_success={last_ok}) — probing live API ...")
-    try:
-        clock = AlpacaClient(settings=cfg).get_clock()
-        print(f"[RECOVERY] Live API healthy (market_open={clock.get('is_open')}) — "
-              f"clearing halt and resuming")
-        state["halted"] = False
-        state["network_failures"] = 0
-        state["api_failures"] = 0
-        state.pop("halt_reason", None)
-        save_state(state)
-        HALT_ALERT_PATH.unlink(missing_ok=True)
-        _send_recovery_slack_alert(nf, af)
-    except Exception as probe_err:
-        print(f"[HALT] Live API probe failed ({probe_err}). Staying halted.")
-        sys.exit(1)
+    attempt = 0
+    while True:
+        try:
+            clock = AlpacaClient(settings=cfg).get_clock()
+            break
+        except Exception as probe_err:
+            if not _is_transient_error(probe_err):
+                print(f"[HALT] Live API probe failed ({probe_err}). Staying halted.")
+                sys.exit(1)
+            wait = RECOVERY_PROBE_BACKOFF_SECONDS[
+                min(attempt, len(RECOVERY_PROBE_BACKOFF_SECONDS) - 1)
+            ]
+            attempt += 1
+            print(f"[RECOVERY] Probe #{attempt} hit a transient error ({probe_err}) — "
+                  f"waiting {wait}s and probing again")
+            time.sleep(wait)
+
+    print(f"[RECOVERY] Live API healthy (market_open={clock.get('is_open')}) — "
+          f"clearing halt and resuming")
+    state["halted"] = False
+    state["network_failures"] = 0
+    state["api_failures"] = 0
+    state.pop("halt_reason", None)
+    save_state(state)
+    HALT_ALERT_PATH.unlink(missing_ok=True)
+    _send_recovery_slack_alert(nf, af)
 
 
 def _send_recovery_slack_alert(network_failures: int, api_failures: int) -> None:
@@ -1036,16 +1075,19 @@ def run(mode: str):
             break
 
         except Exception as e:
-            if _is_network_error(e):
+            if _is_transient_error(e):
+                # Network blips AND broker 5xx both self-heal, so both get the long
+                # (~10 min) tolerance. A 5xx used to fall through to api_retry_limit.
+                kind = "server" if _is_server_error(e) else "network"
                 state["network_failures"] = state.get("network_failures", 0) + 1
                 nf = state["network_failures"]
-                print(f"[NET] Network error #{nf}/{NETWORK_FAILURE_HALT_THRESHOLD}: {e}")
+                print(f"[NET] Transient {kind} error #{nf}/{NETWORK_FAILURE_HALT_THRESHOLD}: {e}")
                 save_state(state)
                 if nf < NETWORK_FAILURE_HALT_THRESHOLD:
                     time.sleep(30)
                     continue
-                failure_label = f"{nf} consecutive network errors"
-                halt_reason = "network"
+                failure_label = f"{nf} consecutive transient ({kind}) errors"
+                halt_reason = kind
             elif _is_order_rejection(e):
                 # Business-logic rejection (e.g. insufficient buying power) — not an API
                 # malfunction. Log it and move on; never count toward the halt threshold.
