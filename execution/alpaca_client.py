@@ -100,6 +100,28 @@ class AlpacaClient:
         )
         return data.get("bars") or []
 
+    def get_latest_price(self, ticker: str) -> float:
+        """Last traded price, at any time of day.
+
+        get_bars(ticker, "1Min", 1) is empty outside regular hours (with no start it
+        only covers today), which silently skipped every ticker in the Monday
+        pre-market weekly scan. The latest-trade endpoint returns the last print even
+        when the market is closed; the most recent daily close is the fallback.
+        Returns 0.0 when neither is available.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        try:
+            trade = self._get(f"/v2/stocks/{ticker}/trades/latest", data_api=True).get("trade") or {}
+            price = float(trade.get("p") or 0)
+            if price > 0:
+                return price
+        except Exception as e:
+            print(f"[ALPACA] latest trade unavailable for {ticker}: {e}")
+        start = (datetime.now(timezone.utc) - timedelta(days=10)).date().isoformat()
+        bars = self.get_bars(ticker, "1Day", 10, start=start)
+        return float(bars[-1]["c"]) if bars else 0.0
+
     def submit_order(
         self,
         ticker: str,

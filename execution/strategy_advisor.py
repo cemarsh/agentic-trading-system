@@ -223,11 +223,12 @@ def run_weekly_scan(alpaca_client, regime: str, settings=None, db=None, notifier
     results = []
     for ticker in tickers:
         try:
-            bars = alpaca_client.get_bars(ticker, "1Min", 1)
-            if not bars:
+            # The scan runs Monday pre-market, when 1-minute bars are empty — pricing
+            # from them skipped every ticker, every week. Latest trade works at any hour.
+            price = alpaca_client.get_latest_price(ticker)
+            if not price:
                 print(f"[ADVISOR] {ticker} — no price data, skipping")
                 continue
-            price = bars[-1]["c"]
             analysis = analyze_ticker(ticker, price, regime, equity, settings=cfg)
             if "error" in analysis:
                 print(f"[ADVISOR] {ticker} — analysis error: {analysis['error']}")
@@ -260,6 +261,9 @@ def run_weekly_scan(alpaca_client, regime: str, settings=None, db=None, notifier
         except Exception as e:
             print(f"[ADVISOR] {ticker} — unexpected error: {e}")
 
+    print(f"[ADVISOR] Weekly scan analyzed {len(results)} of {len(tickers)} tickers")
+    if not results:
+        print("[ADVISOR] WARNING: weekly scan produced no analyses — nothing logged or emailed")
     if notifier and results:
         _send_scan_report(notifier, results, regime, equity)
 
@@ -348,8 +352,7 @@ def main():
     if args.ticker:
         from execution.alpaca_client import AlpacaClient
         alpaca = AlpacaClient(settings=cfg)
-        bars = alpaca.get_bars(args.ticker, "1Min", 1)
-        price = bars[-1]["c"] if bars else 0.0
+        price = alpaca.get_latest_price(args.ticker)
         account = alpaca.get_account()
         equity = float(account.get("equity", 0))
         result = analyze_ticker(args.ticker, price, "NEUTRAL", equity, settings=cfg)
