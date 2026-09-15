@@ -481,3 +481,44 @@ onto it. Deployed HEAD `c7df0ee`, 189 tests.
 - [ ] Confirm the FJET covered call writes: 3 contracts near $4.50, log line "pricing CC off spot".
 - [ ] ~08-28 — the 11 new tickers clear MIN_HISTORY_DAYS and become IV-eligible.
 - [ ] Sanity-check realized vol against a second source (ABT at ~40% annualized looks high).
+
+## 2026-09-15 — the 3-day halt, the advisor crash, and three weeks without Claude
+
+**What broke.** Alpaca paper returned 500 on `/v2/clock` for a few minutes on Fri 09-11 ~09:16 PT.
+A 5xx was not classified as transient, so it counted against `api_retry_limit` (3) and the loop
+halted in ~90s. On restart `_attempt_halt_recovery` probed, got the same 500, and exited; after 5
+fast restarts `StartLimitBurst` put `trading.service` in `failed` and nothing ever retried. The
+OnFailure alert (Fri) and the deadman (Mon, hourly) both fired, but the service stayed down
+through all of Mon 09-14 RTH and the W37 weekly. Restarted by hand 09-15 01:56 PT; the halt
+cleared on the first probe.
+
+- [x] **Halt fix (uncommitted)** — `_is_server_error` / `_is_transient_error` in `market_loop.py`:
+  a broker 5xx now takes the network path (`NETWORK_FAILURE_HALT_THRESHOLD` 20 × 30s ≈ 10 min)
+  instead of `api_retry_limit`. Startup recovery waits through transient probe errors in-process
+  with backoff (30/60/120/300s, last repeats) instead of exiting, so an outage can no longer
+  exhaust the systemd start limit. Auth halts and non-transient probe errors still exit.
+  While it waits there is no heartbeat, so the deadman still alerts during RTH.
+- [x] **Advisor digest crash (uncommitted)** — `generate_digest` sliced `ts` as a string, but
+  `get_lessons` (RealDictCursor) returns a datetime. Every weekly and monthly digest raised
+  `'datetime.datetime' object is not subscriptable`. Now `str(l['ts'])[:10]`.
+- [x] **Verified** — new `tests/test_halt_recovery.py` (15) and `tests/test_strategy_advisor_digest.py`
+  (1) fail 13/16 on the old code and pass on the fix. Full suite 206 passed; the 2
+  `test_stale_order_reprice` failures predate this change. Ruff and mypy unchanged vs. HEAD.
+  Digest dry-run against the 11 live lessons (Claude stubbed) builds the prompt correctly.
+- [x] **Claude credits** — every synthesis (journal, weekly, briefing, advisor) had fallen back to
+  templates since **2026-08-25** ("credit balance is too low"). New `ANTHROPIC_API_KEY` pushed to
+  the VM .env (only that line; backup at `~/.env.trading.bak-20260915`), tested with
+  `claude-sonnet-4-6`, service restarted 02:19 PT.
+- [x] **Monday's "cancelled 1 order" alerts explained** — not a rogue trader. `breakeven-monitor.timer`
+  re-arms the FJET GTC sell (4,261 @ $5.71) hourly; with the loop down the deadman cancelled it
+  and the monitor re-placed it, all day.
+
+**Still open:**
+- [ ] **Commit, push, `deploy.sh`** the two fixes — nothing above is live on VM 117 yet.
+- [ ] **Weekly scan analyzes nothing.** It fires Monday 00:00 ET, and `get_bars(ticker, "1Min", 1)`
+  with no `start` returns no bars before the open, so every ticker is skipped. This, not the
+  crash, is why `strategy_analysis` still has 0 rows.
+- [ ] **CapitolTrades 429s** even at the hourly cooldown (~7/trading day) — whale watch has no
+  congressional data.
+- [ ] **Regenerate** the 09-11 journal and the missed W37 weekly now that Claude works.
+- [ ] `mypy execution/` stops on a pre-existing module-path error before checking anything.
