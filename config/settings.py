@@ -61,6 +61,7 @@ class FeedsConfig:
     whale_poll_minutes: int = 30
     policy_poll_minutes: int = 15
     fetch_error_log_cooldown_minutes: int = 60
+    blocked_source_retry_hours: int = 24
 
 
 @dataclass

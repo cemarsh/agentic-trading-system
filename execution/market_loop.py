@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import settings as cfg_module
 from execution.alpaca_client import AlpacaClient, verify as verify_alpaca
 from execution.hardware_monitor import HardwareMonitor
-from execution.whale_watch import WhaleWatcher
+from execution.whale_watch import SourceBlocked, WhaleWatcher
 from execution.wheel_strategy import WheelStrategy
 from execution.protective_logic import ProtectiveLogic
 from execution.policy_monitor import PolicyMonitor
@@ -637,6 +637,50 @@ def _send_recovery_slack_alert(network_failures: int, api_failures: int) -> None
         pass
 
 
+def _poll_whale(state: dict, whale, feed_cd, feed_err_cd, blocked_cd,
+                notifier=None, retry_hours: float = 24) -> list:
+    """One whale-feed poll: honors the normal poll interval and the blocked-source backoff.
+
+    CapitolTrades serves Vercel's bot checkpoint (a JavaScript challenge sent as HTTP 429)
+    to this host, and every fetch since at least 2026-06-02 failed. When the fetch raises
+    SourceBlocked, the source is marked blocked in state, logged and alerted ONCE, and
+    retried only when `blocked_cd` allows (once per `retry_hours`). Other fetch errors keep
+    the normal cadence with rate-limited logging. A successful fetch clears the block.
+    """
+    if not feed_cd.ready("whale"):
+        return []
+    blocked = bool(state.get("whale_source_blocked"))
+    if blocked and not blocked_cd.ready("whale"):
+        return []
+    try:
+        hits = whale.get_actionable_trades()
+    except SourceBlocked as sb:
+        blocked_cd.ready("whale")  # stamp the retry window from this verdict
+        if not blocked:
+            state["whale_source_blocked"] = True
+            msg = (f"Whale watch source is blocked — {sb}. Politician-trade signals are "
+                   f"offline; retrying once every {retry_hours:g}h.")
+            print(f"[WHALE] {msg}")
+            if notifier:
+                try:
+                    notifier.send(subject="[WHALE] Congressional trade feed blocked", body=msg)
+                except Exception as ne:
+                    print(f"[WHALE] Block alert failed: {ne}")
+        else:
+            print(f"[WHALE] Source still blocked — next retry in {retry_hours:g}h")
+        save_state(state)
+        return []
+    except Exception as we:
+        if feed_err_cd.ready("whale"):
+            print(f"[WHALE] Fetch error: {we}")
+        return []
+    if blocked:
+        state.pop("whale_source_blocked", None)
+        print("[WHALE] Source reachable again — resuming normal polling")
+        save_state(state)
+    return hits
+
+
 def run(mode: str):
     cfg = cfg_module.load()
     state = load_state()
@@ -729,6 +773,10 @@ def run(mode: str):
         (getattr(_feed_cfg, "fetch_error_log_cooldown_minutes", 60) or 60) * 60,
         store=state.setdefault("_feed_err_logs", {}),
     )
+    # A source behind a bot checkpoint can't be polled back to health: retry it daily.
+    _blocked_retry_hours = getattr(_feed_cfg, "blocked_source_retry_hours", 24) or 24
+    whale_blocked_cd = Cooldown(_blocked_retry_hours * 3600,
+                                store=state.setdefault("_feed_blocked_retries", {}))
 
     whale_hits_session: list = []
     policy_feed_ok: bool = True
@@ -828,17 +876,11 @@ def run(mode: str):
                 )
 
             # --- Whale Watch ---
-            # Polled on a cooldown, not every cycle. Congressional disclosures update
-            # daily at best; re-scraping every ~60s was ~390 requests/day and is the
-            # most likely reason CapitolTrades started returning 429 for this IP.
-            whale_hits = []
-            if feed_cd.ready("whale"):
-                try:
-                    whale_hits = whale.get_actionable_trades()
-                except Exception as we:
-                    if feed_err_cd.ready("whale"):
-                        print(f"[WHALE] Fetch error: {we}")
-                    whale_hits = []
+            # Polled on a cooldown, not every cycle: congressional disclosures update daily
+            # at best. The CapitolTrades 429s were never a rate limit — it serves Vercel's
+            # bot checkpoint — so a blocked source backs off to one retry per day.
+            whale_hits = _poll_whale(state, whale, feed_cd, feed_err_cd, whale_blocked_cd,
+                                     notifier=notifier, retry_hours=_blocked_retry_hours)
             if whale_hits:
                 whale_hits_session = whale_hits  # keep latest batch for status reports
             for trade in whale_hits:

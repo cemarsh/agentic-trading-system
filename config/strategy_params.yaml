@@ -22,6 +22,12 @@ feeds:
   whale_poll_minutes: 30
   policy_poll_minutes: 15
   fetch_error_log_cooldown_minutes: 60   # Log a repeated fetch failure at most this often
+  # Correction (2026-09-15): the CapitolTrades "429" above was never a rate limit. It is
+  # Vercel's bot checkpoint (x-vercel-mitigated: challenge), a JavaScript challenge no HTTP
+  # client passes, so slower polling could not fix it — every fetch since at least
+  # 2026-06-02 failed. A source that answers with a checkpoint is marked blocked (one log
+  # line + one email) and retried only once per this many hours.
+  blocked_source_retry_hours: 24
 
 whale_watch:
   source_url: "https://www.capitoltrades.com/trades"

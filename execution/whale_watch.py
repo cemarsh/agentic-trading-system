@@ -16,6 +16,29 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import settings as cfg_module
 
 
+class SourceBlocked(Exception):
+    """The source answered with a bot checkpoint or an edge block — not data, and not a
+    rate limit. Retrying on the normal poll interval cannot succeed."""
+
+
+def _blocked_reason(resp) -> Optional[str]:
+    """Why a response is an edge block, or None when it is not one.
+
+    CapitolTrades has served Vercel's Security Checkpoint to this host since at least
+    2026-06-02: HTTP 429 with `x-vercel-mitigated: challenge` and a JavaScript page. It
+    looks like a rate limit and was treated as one, but no HTTP client can pass it, so
+    slower polling never helped. A plain 429 without the challenge is still a normal
+    HTTP error.
+    """
+    if (resp.headers.get("x-vercel-mitigated", "").lower() == "challenge"
+            or "Vercel Security Checkpoint" in resp.text[:4000]):
+        return (f"HTTP {resp.status_code} is Vercel's bot checkpoint (a JavaScript challenge "
+                f"no HTTP client can pass), not a rate limit")
+    if resp.status_code == 403 and resp.headers.get("server", "").lower() == "vercel":
+        return "HTTP 403 from Vercel's firewall: this client is blocked"
+    return None
+
+
 @dataclass
 class WhaleTrade:
     politician: str
@@ -45,6 +68,9 @@ class WhaleWatcher:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; TradingBot/1.0)"}
 
         resp = requests.get(url, headers=headers, timeout=15)
+        reason = _blocked_reason(resp)
+        if reason:
+            raise SourceBlocked(f"{url}: {reason}")
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")
