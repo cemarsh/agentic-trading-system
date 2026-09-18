@@ -516,8 +516,7 @@ cleared on the first probe.
 **Still open:**
 - [ ] **Commit, push, `deploy.sh`** the two fixes — nothing above is live on VM 117 yet.
 - [x] **Weekly scan analyzes nothing (fixed, uncommitted — see below).**
-- [ ] **CapitolTrades 429s** even at the hourly cooldown (~7/trading day) — whale watch has no
-  congressional data.
+- [x] **CapitolTrades 429s (fixed, uncommitted — see "the 429 that was never a rate limit" below).**
 - [ ] **Regenerate** the 09-11 journal and the missed W37 weekly now that Claude works.
 - [ ] `mypy execution/` stops on a pre-existing module-path error before checking anything.
 
@@ -545,3 +544,83 @@ FJET and OPTX.
   `strategy_analysis` and a scan email.
 - [ ] Other 1-minute-bar callers (`position_manager`, `wheel_strategy`, `inverse_etf_hedge`,
   `universe_screen`) run during RTH and were left alone; revisit only if one gains a pre-market path.
+
+## 2026-09-15 (later still) — the CapitolTrades 429 that was never a rate limit
+
+**What broke.** Whale watch has not received one congressional trade since at least 2026-06-02.
+The August fix assumed 60s polling had earned a rate limit and slowed polling to 30 min; the
+errors continued at ~7 per trading day. Probed from VM 117: our bot UA gets `403` from Vercel's
+firewall; a real Chrome UA with full browser headers gets `429` with `x-vercel-mitigated:
+challenge` and a "Vercel Security Checkpoint" page — a JavaScript challenge no HTTP client passes.
+`bff.capitoltrades.com` returns `503 LambdaExecutionError`. No polling rate could ever have fixed it.
+
+- [x] **`SourceBlocked`** — `whale_watch` recognises the checkpoint (challenge header or page title)
+  and Vercel firewall 403s; a plain 429 is still an ordinary HTTP error.
+- [x] **`_poll_whale` in `market_loop`** — a blocked source is flagged in `agent_state.json`, logged
+  and emailed ONCE, and retried once per `feeds.blocked_source_retry_hours` (24) via a persisted
+  `Cooldown`; a successful retry clears the flag and resumes normal polling.
+- [x] **Verified** — `tests/test_whale_blocked.py` (10) cannot import against the old code and passes
+  on the fix; full suite 221 passed (the 2 `test_stale_order_reprice` failures predate this); ruff
+  unchanged. Live on VM 117: a real fetch raises `SourceBlocked`, and 3 consecutive polls
+  produced 1 fetch and 1 alert.
+
+**Replacement sources checked (for the open decision below):**
+- Finnhub `/stock/congressional-trading` — `403`, premium-only on our key.
+- House/Senate Stock Watcher S3 datasets — `403`, gone.
+- **House Clerk** `disclosures-clerk.house.gov/public_disc/financial-pdfs/2026FD.zip` — works:
+  1,628 filings, 388 periodic transaction reports (PTRs), newest 2026-09-09. PTR PDFs at
+  `.../ptr-pdfs/2026/<DocID>.pdf` extract cleanly with `pdftotext -layout` (already on the VM):
+  asset + `(TICKER)`, P/S, transaction and notification dates, `$1,001 - $15,000` ranges.
+  Tracked House members with 2026 PTRs: McCormick 4 (latest 08-14), Kelly 10, Gottheimer 8,
+  Pelosi 3, Davidson 1, Sewell 1, Crenshaw 1; Norcross and Greene 0.
+- Senate eFD (`efdsearch.senate.gov`) — reachable, but needs an agreement/CSRF session flow.
+
+**Still open:**
+- [ ] **Commit, push, `deploy.sh`.** Expect one "[WHALE] Congressional trade feed blocked" email on
+  the first poll after deploy, then one log line per day.
+- [ ] **Decide on a replacement feed.** House Clerk PTRs cover 9 of 11 tracked names (both senators
+  would need eFD). Note disclosures lag trades by up to 45 days, and `WhaleTrade.trade_date` is
+  currently stamped `date.today()` — any replacement must carry the real transaction date.
+- [ ] `whale_watch.source_url` in the YAML is ignored; `fetch_recent_trades` hard-codes the URL.
+
+## 2026-09-18 — NEXT SESSION: terminal dashboard (decided, not started)
+
+**Decision.** Build a **terminal dashboard** run over ssh on VM 117 (option 1 of three: TUI vs a
+page the loop writes vs Metabase). Prompted by a Twitter/X "Claude Code turned $68 into $750K"
+crypto-arb post — the claims are marketing (the screenshot itself says SIMULATED, 100% win rate on
+261 trades), but the *cockpit layout* is worth copying honestly. Nothing about that bot's strategy
+is being adopted: retail cross-venue crypto arb is latency-bound and irrelevant to a paper options
+wheel, and our measured problem is entry quality/exit enforcement, not throughput.
+
+**Hard constraint: read-only.** The dashboard must never write state, place orders, or import the
+trading path in a way that can block the loop. A crashed dashboard must not be able to affect an
+order. Run it as a separate process (`python execution/dashboard.py`), not inside `market_loop`.
+
+**Panels, and the data that already exists for each (verified 2026-09-18):**
+| Panel | Source |
+|---|---|
+| Equity curve, realized/unrealized, day change | `performance.equity_curve` / `capital_snapshot` (Alpaca portfolio history) |
+| Open positions + wheel stage + resting orders | Alpaca `/v2/positions`, `/v2/orders`; FJET GTC breakeven @ $5.71 |
+| Win rate / profit factor / expectancy | `performance.trade_stats` (same numbers as the weekly/monthly needle block) |
+| "Why nothing traded" | `decision_logic` table (680 rows) |
+| IV gate eligibility per ticker | `iv_history` (1,360 rows), `iv_tracker --rank-all` |
+| System health | `logs/heartbeat` age, `agent_state.json` (halt flag, last_* scheduled runs), feed block flags |
+| Live activity log | `logs/insights/*.jsonl` (15,442 lines) |
+| Lessons / signals | `strategy_lessons` (65), `trading_signals` (60) |
+
+Empty on purpose, do not design around them: `strategy_analysis` (0 rows until the first fixed
+weekly scan on Mon 2026-09-22), `derivatives_positions`, `workflow_runs`, `proposed_config_changes`.
+
+**Open questions for next session:**
+- [ ] Library: plain ANSI/curses (no new dependency) vs `rich`/`textual` (nicer, adds a dependency
+      to `requirements.txt` and the VM venv). Lean `rich` unless we want zero new deps.
+- [ ] Refresh cadence and API budget — the loop already polls Alpaca every 60s; the dashboard
+      should read `agent_state.json` / DB / heartbeat where it can and hit Alpaca sparingly.
+- [ ] Does it run on the VM over ssh (authoritative data, no extra creds) or locally in WSL
+      against the same Postgres? VM is the honest answer; WSL has no `.env` parity guarantee.
+- [ ] One-shot mode (`--once`) for piping into the daily report, alongside the live refresh loop.
+
+**Still open from earlier today:**
+- [ ] The CapitolTrades blocked-source fix is committed but **not deployed** — run `deploy.sh` to
+      stop the daily 429 lines and arm the one-time "feed blocked" email.
+- [ ] Replacement congressional feed (House Clerk PTRs) — still an open decision, see above.
