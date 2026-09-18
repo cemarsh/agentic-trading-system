@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 1.5.2  
-**Last Updated**: 2026-05-27  
+**Version**: 2.3.1  
+**Last Updated**: 2026-09-18  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · Home Workstation · Alpaca Markets
 
@@ -388,6 +388,51 @@ as illiquid.
 The deeper monoculture is not sectoral — **every trade is a short put**, i.e. short-vol and
 long-delta. Diversifying tickers alone does not stop a drawdown hitting everything at once. A
 second, uncorrelated engine is the next phase, gated on evidence the wheel's expectancy turned.
+
+## Reliability & Feed Integrity (v2.3.1, 2026-09-15)
+
+Three defects surfaced together, and each had been silently costing the system something for
+weeks. None was visible from the trading logic; all three were visible only in the operational
+record.
+
+### A four-minute broker outage became a three-day one
+Alpaca's paper API returned `500` on `/v2/clock` for a few minutes on 2026-09-11. A 5xx counted
+against `guardrails.api_retry_limit` (3), so the loop halted ninety seconds in. On restart the
+recovery probe hit the same `500` and exited, and after five fast restarts systemd's
+`StartLimitBurst` stopped the unit for good. Nothing retried it. The failure alert and the
+deadman alerts all fired correctly; the system simply stayed down until a human read them.
+
+A broker 5xx is now classed with network blips — the fault is upstream and clears on its own — so
+it takes the long (~10 min) tolerance instead of the three-strike one. More importantly, startup
+recovery **waits out** a transient outage in-process (30s → 5 min backoff, indefinitely) rather
+than exiting into the start limit. Auth failures and genuine errors still stop the service loudly.
+
+### The Monday scan had never analyzed a single ticker
+`run_weekly_scan` fires in the Monday pre-market window — in practice 00:00 ET — and priced each
+ticker with `get_bars(ticker, "1Min", 1)`. Without a `start`, that request covers the current day
+only, and at midnight no prints exist, so every ticker hit "no price data, skipping". The scan had
+therefore produced nothing since it was written: `strategy_analysis` had **0 rows, ever**, and the
+attribution work built on top of it had no input. `AlpacaClient.get_latest_price()` (latest trade,
+falling back to the last daily close) works at any hour, and the scan now reports how many of its
+tickers it actually analyzed and warns when that number is zero.
+
+### A "rate limit" that no backoff could ever fix
+CapitolTrades had been returning `429` to the whale watcher for months. The obvious reading was
+over-polling, and an earlier fix slowed the feed from every 60s to every 30 min. The errors
+continued, because the response was never a rate limit: it is Vercel's **bot checkpoint**
+(`x-vercel-mitigated: challenge`), a JavaScript challenge no HTTP client can pass. A source that
+answers with a checkpoint is now flagged in state, logged and emailed **once**, and retried daily
+instead of every poll (`feeds.blocked_source_retry_hours`).
+
+| Defect | Cost before the fix | Now |
+|--------|--------------------|-----|
+| 5xx treated as an API failure | 3 trading days down, unattended | ~10 min tolerance, then in-process retry until the broker answers |
+| Digest sliced a `TIMESTAMPTZ` as text | Every weekly and monthly strategy digest crashed | `str()` before slicing; covered by a test |
+| Pre-market scan priced from 1-minute bars | `strategy_analysis` empty since inception | Latest-trade pricing; "analyzed N of M" line |
+| Bot checkpoint read as a rate limit | ~7 error lines per trading day, no data since June | One alert, one daily retry |
+
+The lesson these share: **read what the error actually says.** A 429 is not always a rate limit, a
+403 can mean a site moved, and an empty result set at midnight is not the same as no opportunities.
 
 ## The Roadmap: Where This Is Going
 
