@@ -30,9 +30,9 @@ python -m pytest tests/ -q                              # full suite (65 tests, 
 python -m pytest tests/test_wheel_sizing.py -q          # one file
 python -m pytest tests/test_risk_gate.py::test_name -q  # one test
 
-# Lint / types (declared in requirements.txt, no config files — defaults apply)
+# Lint / types (declared in requirements.txt; ruff runs on defaults, mypy reads mypy.ini)
 ruff check .
-mypy execution/
+mypy execution/        # mypy.ini sets explicit_package_bases — there are no __init__.py files
 
 # The loop
 python execution/market_loop.py --verify-only   # connectivity checks, exits nonzero on failure

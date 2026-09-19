@@ -680,5 +680,11 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
       expiry (8 files) moved to the shared `tests/_symbols.occ()`. Verified by running the suite
       with the clock shifted to 2027-06-15 (`time-machine`): 239/239, while the pre-fix reprice
       file fails 2 under the same shift. New fixtures: use `occ()`, never a literal OCC date.
-- [ ] `mypy execution/` module-path error: `--explicit-package-bases` gets past it (the new
-      dashboard modules are clean under it). Consider adding that to the documented command.
+- [x] `mypy execution/` module-path error — **fixed 09-19** with `mypy.ini`
+      (`explicit_package_bases = True`), so the documented command works unchanged.
+- [ ] That fix un-hid the real backlog: **147 errors in 22 files** that mypy had never reported.
+      Mostly `union-attr` (67 — Optional values used without a None check) and `assignment` (26);
+      19 are missing third-party stubs (`types-requests`, `types-PyYAML`, …). Heaviest:
+      strategy_advisor 22, daily_journal 17, iv_tracker 16, weekly_journal 15, morning_briefing 15,
+      period_reports 14. The union-attr ones are worth a pass — they are the None-handling bugs
+      the RTH-only-data and `get_bars() or []` incidents were made of. The dashboard files are clean.
