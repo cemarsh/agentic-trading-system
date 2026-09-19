@@ -15,6 +15,7 @@ from execution.performance import (
     quarter_label,
     _alpaca_period_for,
 )
+from tests._symbols import occ
 
 
 class FakeAlpaca:
@@ -134,7 +135,7 @@ def test_capital_snapshot_counts_short_put_collateral():
     """A short put has no market value but ties up strike x 100 x qty in collateral."""
     positions = [
         {"symbol": "FJET", "qty": "4570", "market_value": "17823", "unrealized_pl": "-8236"},
-        {"symbol": "KTOS260904P00052000", "qty": "-1", "market_value": "-130",
+        {"symbol": occ("KTOS", "P", 52), "qty": "-1", "market_value": "-130",
          "unrealized_pl": "-65"},
     ]
     out = capital_snapshot(FakeAlpaca(
@@ -152,7 +153,7 @@ def test_capital_snapshot_counts_short_put_collateral():
 
 def test_capital_snapshot_ignores_long_puts_for_collateral():
     positions = [
-        {"symbol": "SPY260904P00500000", "qty": "1", "market_value": "300",
+        {"symbol": occ("SPY", "P", 500), "qty": "1", "market_value": "300",
          "unrealized_pl": "0"},
     ]
     out = capital_snapshot(FakeAlpaca(account={"equity": "10000", "cash": "9700"},

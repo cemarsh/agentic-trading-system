@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.wheel_strategy import WheelStrategy
+from tests._symbols import occ
 
 
 def _cfg(tickers=("FJET",), write_ccs=True, underwater_pct=25.0, uw_markup=12.0,
@@ -50,7 +51,7 @@ def _alpaca(call_strikes=(4.5,), bid=0.15):
     a = MagicMock()
     a.get_account.return_value = {"equity": "83907", "initial_margin": "0"}
     a.get_options_contracts.return_value = [
-        {"type": "call", "strike_price": str(s), "symbol": f"FJET260904C{int(s*1000):08d}"}
+        {"type": "call", "strike_price": str(s), "symbol": occ("FJET", "C", s)}
         for s in call_strikes
     ]
     a.get_option_quote.return_value = {"bid": bid, "ask": bid + 0.05, "mid": bid}
@@ -75,7 +76,7 @@ def test_sync_detects_existing_short_calls():
     ws = WheelStrategy(settings=_cfg(), alpaca_client=MagicMock())
     ws.sync_positions([
         _fjet(),
-        {"symbol": "FJET260904C00004500", "qty": "-3", "unrealized_pl": "-10",
+        {"symbol": occ("FJET", "C", 4.5), "qty": "-3", "unrealized_pl": "-10",
          "avg_entry_price": "0.15", "current_price": "0.18", "market_value": "-54"},
     ])
     assert ws._open_short_calls == {"FJET": 4.5}
@@ -113,7 +114,7 @@ def test_underwater_position_prices_strike_off_spot():
     ws.open_cc("FJET")
     # spot 3.86 x 1.12 = 4.32 -> nearest available strike is 4.5, not the 5.5/6.0
     # a basis-derived target would have chosen.
-    assert alpaca.submit_option_order.call_args.kwargs["symbol"] == "FJET260904C00004500"
+    assert alpaca.submit_option_order.call_args.kwargs["symbol"] == occ("FJET", "C", 4.5)
 
 
 def test_healthy_position_still_uses_cost_basis_strike():
@@ -125,7 +126,7 @@ def test_healthy_position_still_uses_cost_basis_strike():
                         "market_value": "4900", "unrealized_pl": "-100"}])
     ws.open_cc("FJET")
     # basis 10.0 x 1.02 = 10.2 -> nearest is 10.0
-    assert alpaca.submit_option_order.call_args.kwargs["symbol"] == "FJET260904C00010000"
+    assert alpaca.submit_option_order.call_args.kwargs["symbol"] == occ("FJET", "C", 10)
 
 
 def test_underwater_mode_disabled_at_zero():
@@ -135,7 +136,7 @@ def test_underwater_mode_disabled_at_zero():
     ws.open_cc("FJET")
     # falls back to basis 5.70 x 1.02 = 5.81 -> nearest is 6.0... or 5.5
     chosen = alpaca.submit_option_order.call_args.kwargs["symbol"]
-    assert chosen in ("FJET260904C00005500", "FJET260904C00006000")
+    assert chosen in (occ("FJET", "C", 5.5), occ("FJET", "C", 6))
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +149,7 @@ def test_does_not_stack_a_second_covered_call():
     ws = WheelStrategy(settings=_cfg(), alpaca_client=alpaca)
     ws.sync_positions([
         _fjet(),
-        {"symbol": "FJET260904C00004500", "qty": "-3", "unrealized_pl": "-10",
+        {"symbol": occ("FJET", "C", 4.5), "qty": "-3", "unrealized_pl": "-10",
          "avg_entry_price": "0.15", "current_price": "0.18", "market_value": "-54"},
     ])
     assert ws.open_cc("FJET") is None

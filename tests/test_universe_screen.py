@@ -14,6 +14,7 @@ from execution.universe_screen import (
     build_book_returns,
     run_screen,
 )
+from tests._symbols import occ
 
 
 def _cfg(max_corr=0.60, max_spread=25.0, seed=("BAC",), enabled=True):
@@ -95,7 +96,7 @@ def test_book_returns_maps_options_to_underlying():
     alpaca.get_bars.return_value = [{"c": 100 + i} for i in range(70)]
     cfg = _cfg()
     positions = [
-        {"symbol": "KTOS260904P00052000"},
+        {"symbol": occ("KTOS", "P", 52)},
         {"symbol": "FJET"},
     ]
     book = build_book_returns(alpaca, cfg, positions)
@@ -116,7 +117,7 @@ def _alpaca(price=45.0, bid=0.50, ask=0.55, puts=True, bars=70):
 
     a.get_bars.side_effect = _bars
     a.get_options_contracts.return_value = (
-        [{"type": "put", "strike_price": "42.0", "symbol": "X260904P00042000"}] if puts else []
+        [{"type": "put", "strike_price": "42.0", "symbol": occ("X", "P", 42)}] if puts else []
     )
     a.get_option_quote.return_value = {"bid": bid, "ask": ask}
     return a

@@ -1,13 +1,14 @@
 """Stale close-order re-pricing — how a resting order muted its own position."""
 
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.position_manager import PositionManager, _order_age_seconds
+from tests._symbols import occ
 
 
 def _cfg(stale=180, attempts=3, aggression=0.02):
@@ -25,14 +26,7 @@ def _cfg(stale=180, attempts=3, aggression=0.02):
     return cfg
 
 
-def _occ(root, strike="00052000", days_out=30):
-    """A short put that is still live whenever the suite runs. These fixtures were
-    hard-coded to 260904, and once that date passed the manager skipped the position
-    as expired (DTE < 0) — the tests broke on the calendar, not on the code."""
-    return f"{root}{date.today() + timedelta(days=days_out):%y%m%d}P{strike}"
-
-
-KTOS = _occ("KTOS")
+KTOS = occ("KTOS")
 
 
 def _order(order_id, symbol, age_seconds):
@@ -122,10 +116,10 @@ def test_attempts_are_tracked_per_symbol():
     alpaca.cancel_order.return_value = True
     pm = PositionManager(settings=_cfg(attempts=1), alpaca_client=alpaca)
 
-    assert pm._reprice_stale_order(_occ("AAA"), _order("o1", "A", 400), 400) is True
-    assert pm._reprice_stale_order(_occ("AAA"), _order("o2", "A", 400), 400) is False
+    assert pm._reprice_stale_order(occ("AAA"), _order("o1", "A", 400), 400) is True
+    assert pm._reprice_stale_order(occ("AAA"), _order("o2", "A", 400), 400) is False
     # A different symbol has its own budget.
-    assert pm._reprice_stale_order(_occ("BBB"), _order("o3", "B", 400), 400) is True
+    assert pm._reprice_stale_order(occ("BBB"), _order("o3", "B", 400), 400) is True
 
 
 def test_disabled_when_stale_seconds_is_zero():

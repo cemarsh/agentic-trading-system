@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.risk_gate import RiskGate, _occ_parts
+from tests._symbols import occ
 
 
 def _mock_settings():
@@ -30,7 +31,7 @@ def _gate(positions=None, equity=90_000.0):
 
 
 def test_occ_parser():
-    assert _occ_parts("CCJ260717P00098000") == ("CCJ", "P", 98.0)
+    assert _occ_parts(occ("CCJ", "P", 98)) == ("CCJ", "P", 98.0)
     assert _occ_parts("AAPL") is None
 
 
@@ -86,7 +87,7 @@ def test_no_auto_manage_tickers_auto_quarantined():
 def test_sector_cap_counts_csp_collateral():
     # Short put CCJ $98 = $9,800 collateral in nuclear_uranium
     positions = [
-        {"symbol": "CCJ260717P00098000", "qty": "-1", "market_value": "-250"},
+        {"symbol": occ("CCJ", "P", 98), "qty": "-1", "market_value": "-250"},
         {"symbol": "CEG", "market_value": "8000", "qty": "30"},
     ]
     gate = _gate(positions)

@@ -676,6 +676,9 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
 - [x] `tests/test_stale_order_reprice.py` has 2 failures that are a **date time-bomb**, not a
       regression: fixtures use `KTOS260904P…`, which expired 2026-09-04, so the manager skips it.
       Pin the contract to a future expiry relative to `date.today()`. **Done 09-19:** `_occ()`
-      builds the symbol 30 days out; suite is 239/239.
+      builds the symbol 30 days out; suite is 239/239. Then every other fixture's hard-coded
+      expiry (8 files) moved to the shared `tests/_symbols.occ()`. Verified by running the suite
+      with the clock shifted to 2027-06-15 (`time-machine`): 239/239, while the pre-fix reprice
+      file fails 2 under the same shift. New fixtures: use `occ()`, never a literal OCC date.
 - [ ] `mypy execution/` module-path error: `--explicit-package-bases` gets past it (the new
       dashboard modules are clean under it). Consider adding that to the documented command.

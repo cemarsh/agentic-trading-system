@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.wheel_strategy import WheelStrategy
+from tests._symbols import occ
 
 
 def _cfg(tickers=("CCJ",), book_loss=0.0, skip_losing=False,
@@ -61,7 +62,7 @@ def test_book_health_allows_a_clean_book():
 
 def test_book_health_blocks_when_loss_exceeds_limit():
     ws = WheelStrategy(settings=_cfg(book_loss=15.0), alpaca_client=MagicMock())
-    ws.sync_positions([_equity_pos("FJET", 4570, -8637), _short_put("KTOS260904P00052000", -400)])
+    ws.sync_positions([_equity_pos("FJET", 4570, -8637), _short_put(occ("KTOS", "P", 52), -400)])
     ok, reason = ws.book_health(50_000)          # -9037 / 50k = 18.1%
     assert not ok
     assert "18.1%" in reason
@@ -90,7 +91,7 @@ def test_run_cycle_returns_zero_when_book_is_stressed():
     alpaca = MagicMock()
     alpaca.get_account.return_value = {"equity": "50000"}
     ws = WheelStrategy(settings=_cfg(book_loss=15.0), alpaca_client=alpaca)
-    ws.sync_positions([_equity_pos("FJET", 4570, -8637), _short_put("KTOS260904P00052000", -400)])
+    ws.sync_positions([_equity_pos("FJET", 4570, -8637), _short_put(occ("KTOS", "P", 52), -400)])
 
     assert ws.run_cycle() == 0
     alpaca.get_options_contracts.assert_not_called()   # never even priced a chain
@@ -104,7 +105,7 @@ def test_sync_records_losing_underlyings_from_equity_and_options():
     ws = WheelStrategy(settings=_cfg(tickers=("CCJ", "KTOS")), alpaca_client=MagicMock())
     ws.sync_positions([
         _equity_pos("CCJ", 100, -250),
-        _short_put("KTOS260904P00052000", -400),
+        _short_put(occ("KTOS", "P", 52), -400),
         _equity_pos("MP", 100, +80),
     ])
     assert ws._losing_underlyings == {"CCJ", "KTOS"}
@@ -197,7 +198,7 @@ def _alpaca_for_entry(spot=100.0, strike=94.0, bid=1.00):
     alpaca.get_account.return_value = {"equity": "100000", "initial_margin": "0"}
     alpaca.get_bars.return_value = [{"c": spot}]
     alpaca.get_options_contracts.return_value = [
-        {"type": "put", "strike_price": str(strike), "symbol": "CCJ260904P00094000"}
+        {"type": "put", "strike_price": str(strike), "symbol": occ("CCJ", "P", 94)}
     ]
     alpaca.get_option_quote.return_value = {"bid": bid, "ask": bid + 0.05, "mid": bid}
     alpaca.submit_option_order.return_value = {"id": "o1"}

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.protective_logic import ProtectiveLogic
+from tests._symbols import occ
 
 
 def _cfg(limit=25.0, no_auto=("FJET",)):
@@ -61,7 +62,7 @@ def test_disabled_when_limit_is_zero():
 
 def test_ignores_option_positions():
     pl = ProtectiveLogic(settings=_cfg(), alpaca_client=MagicMock())
-    opt = {"symbol": "KTOS260904P00052000", "qty": "-1",
+    opt = {"symbol": occ("KTOS", "P", 52), "qty": "-1",
            "avg_entry_price": "2.10", "current_price": "20.00", "unrealized_pl": "-1790"}
     assert pl.check_catastrophic_loss([opt]) == []
 

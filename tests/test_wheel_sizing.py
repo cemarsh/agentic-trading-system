@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.risk_gate import RiskGate
 from execution.wheel_strategy import WheelStrategy
+from tests._symbols import occ
 
 
 def _settings(tickers=("CCJ",), max_contracts=4, per_trade_pct=15.0,
@@ -191,7 +192,7 @@ def test_sync_positions_marks_short_put_as_stage_1():
     cfg.risk.quarantined_tickers = []
     cfg.protection.no_auto_manage = []
     ws = WheelStrategy(settings=cfg, alpaca_client=MagicMock())
-    ws.sync_positions([{"symbol": "CCJ260821P00098000", "qty": "-1"}])
+    ws.sync_positions([{"symbol": occ("CCJ", "P", 98), "qty": "-1"}])
     assert ws._positions["CCJ"].stage == 1
     assert ws._positions["CCJ"].csp_strike == 98.0
     assert ws._positions["MP"].stage == 0
@@ -224,6 +225,6 @@ def test_open_csp_refuses_when_already_short_a_put():
     cfg.risk.quarantined_tickers = []
     cfg.protection.no_auto_manage = []
     ws = WheelStrategy(settings=cfg, alpaca_client=a)
-    ws.sync_positions([{"symbol": "CCJ260821P00020000", "qty": "-1"}])
+    ws.sync_positions([{"symbol": occ("CCJ", "P", 20), "qty": "-1"}])
     assert ws.open_csp("CCJ") is None
     a.submit_option_order.assert_not_called()
