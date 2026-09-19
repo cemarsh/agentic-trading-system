@@ -29,6 +29,9 @@ def _settings(tickers=("CCJ",), max_contracts=4, per_trade_pct=15.0,
     cfg.wheel.max_wheel_allocation_pct = alloc_pct
     cfg.wheel.min_iv_rank = 0.0              # IV gate off unless a test enables it
     cfg.wheel.iv_gate_fail_open = True
+    # Off: a MagicMock attribute is truthy, so the wheel would read the machine's real
+    # logs/dynamic_universe.json and scan its promoted names (BA, HPQ on the VM).
+    cfg.wheel.use_signal_candidates = False
     cfg.wheel.min_credit_per_share = 0.10
     cfg.wheel.earnings_gate = False
     cfg.wheel.max_contracts_per_trade = max_contracts
