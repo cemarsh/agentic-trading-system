@@ -119,7 +119,7 @@ fi
 
 echo "==> Installing systemd units"
 for unit in trading.service trading-alert.service trading-heartbeat.service trading-heartbeat.timer \
-            breakeven-monitor.service breakeven-monitor.timer; do
+            breakeven-monitor.service breakeven-monitor.timer trading-dashboard.service; do
   sudo cp "deploy/$unit" "/etc/systemd/system/$unit"
   echo "    installed $unit"
 done
@@ -128,10 +128,14 @@ sudo systemctl enable --now trading-heartbeat.timer
 sudo systemctl enable --now breakeven-monitor.timer
 sudo systemctl reset-failed trading || true
 sudo systemctl restart trading
+# Read-only dashboard beside the loop; restarted so it serves the page just pulled.
+sudo systemctl enable trading-dashboard.service
+sudo systemctl restart trading-dashboard.service || echo "    !! trading-dashboard failed to start (trading is unaffected)"
 
 echo "==> Post-deploy status"
 sleep 5
 echo "    trading:            $(systemctl is-active trading)"
 echo "    heartbeat.timer:    $(systemctl is-active trading-heartbeat.timer)"
+echo "    dashboard:          $(systemctl is-active trading-dashboard)"
 echo "    HEAD:               $(git rev-parse --short HEAD)"
 echo "==> Deploy complete."

@@ -11,6 +11,7 @@ logs/*.log
 logs/insights/*.jsonl
 logs/policy_signal_cache.json
 logs/heartbeat
+logs/dashboard/
 logs/heartbeat_alert.json
 logs/halt_pending_alert.json
 logs/critical_alerts.baseline

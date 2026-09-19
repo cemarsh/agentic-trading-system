@@ -624,3 +624,57 @@ weekly scan on Mon 2026-09-22), `derivatives_positions`, `workflow_runs`, `propo
 - [ ] The CapitolTrades blocked-source fix is committed but **not deployed** — run `deploy.sh` to
       stop the daily 429 lines and arm the one-time "feed blocked" email.
 - [ ] Replacement congressional feed (House Clerk PTRs) — still an open decision, see above.
+
+## 2026-09-19 — deploy of the 09-15/09-18 fixes, and the dashboard (both web and terminal)
+
+**Deploy.** `deploy.sh` ran at 03:45 PDT; `trading` restarted clean on `fe83c77` (paper, Postgres +
+Resend OK, market closed). The VM had been at `c63b2f0`, 4 commits behind. Worth recording: the
+process that was replaced had been up **4d 26m — since ~09-14 23:19 PDT**, i.e. from *before*
+the 09-15 commits. So the advisor-crash fix and the weekly-scan fix were on disk but **not running
+until today**, and the CapitolTrades backoff (`ccc5f21`) went live with them. "Committed" and
+"pulled" are not "running": check `systemctl show trading -p ActiveEnterTimestamp` against the
+commit time.
+
+The VM also had 4 dailies, the W38 weekly and a modified `MEM.md` uncommitted. `deploy.sh`'s
+journal pre-commit handled them correctly (committed + pushed as `fe83c77` before the reset). A
+belt-and-braces copy is in `~/vm-data-backup/20260919-0345/` on the VM — delete when satisfied.
+
+**Dashboard — decision changed from "TUI only" to both, sharing one data builder.**
+
+| File | Role |
+|---|---|
+| `execution/dashboard_export.py` | `build_state()` — the only producer. Read-only: broker reached via `ReadOnlyBroker` (GETs only, no order methods — a test pins that). Writes only `logs/dashboard/{state,cache}.json` (gitignored so `deploy.sh`'s `stash -u` can't sweep them). |
+| `execution/dashboard_serve.py` + `deploy/trading-dashboard.service` | Exporter thread every 60 s + a 3-route HTTP server on **127.0.0.1:8765**. Not tied to `trading.service`; `Nice=10`. View: `ssh -L 8765:127.0.0.1:8765 workstation`. |
+| `dashboard/index.html` | The uploaded page, adapted: HTML-escaped, market state from `/v2/clock`, profit factor + expectancy next to win rate, rules footer from YAML, chart guard for <2 points, stale-snapshot alert (>3 min). `?demo` renders built-in data. |
+| `execution/dashboard_tui.py` | `rich` terminal view of the same dict. Calls `build_state()` directly, so it works when the service is down. `--once` for piping, `--from-file` for zero API calls. |
+
+Module health is computed from `agent_state.json` run markers against each task's actual schedule
+(weekday 08:30/09:00/10:00, Monday pre-market, Friday 16:15, trading-day close via `/v2/calendar`),
+with a grace window so a task inside its own hour isn't "late". Feeds are `idle` when the market is
+closed (they only poll in the open branch) and the whale feed shows `blocked` from
+`whale_source_blocked`.
+
+**Multi-account.** The engine still trades exactly one account (`ALPACA_KEY`). Other paper accounts
+are **watched** (shown, never traded) via env on the VM:
+`ALPACA_ACCOUNTS=acct3,acct1,…`, `ALPACA_ACCOUNT_ID=acct3`, `ALPACA_KEY_<ID>`/`ALPACA_SECRET_<ID>`,
+optional `ALPACA_NAME_<ID>`. Profit factor/expectancy exist only for the traded account —
+`decision_logic` has no account column, and the page never blends them.
+
+**What the first real snapshot said (2026-09-19, market closed):** equity $73,272, −26.7% since
+2026-04-08; 90-day ledger PF **0.06**, win rate 17%, expectancy −$187 over 46 closed trades — worse
+than the Q3 baseline (0.23). Unrealized is −$18.5k and FJET alone is −$18.6k (−71%, GTC exit resting at
+$5.71). The wheel is correctly refusing new CSPs on the 15% book-loss limit every day. `weekly scan`
+and `universe screen` show **missed 1** (2026-09-14) — the service was down that Monday, not a new bug.
+
+**Still open:**
+- [ ] Commit, push, `deploy.sh`, then `systemctl status trading-dashboard` and open the tunnel.
+      `deploy.sh` now installs/enables/restarts the unit and prints its state; a dashboard failure
+      only prints a warning — trading is unaffected.
+- [ ] Add the watched paper accounts' keys to the VM `.env` (and WSL `.env` — see env-sync rule).
+- [ ] Mon 09-21: weekly scan's first run with the fix — the dashboard's `weekly scan` row should go
+      green and `strategy_analysis` should get rows.
+- [ ] `tests/test_stale_order_reprice.py` has 2 failures that are a **date time-bomb**, not a
+      regression: fixtures use `KTOS260904P…`, which expired 2026-09-04, so the manager skips it.
+      Pin the contract to a future expiry relative to `date.today()`.
+- [ ] `mypy execution/` module-path error: `--explicit-package-bases` gets past it (the new
+      dashboard modules are clean under it). Consider adding that to the documented command.

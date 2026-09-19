@@ -1,0 +1,205 @@
+{
+  "generated_at": "2026-09-19T10:58:20.588845+00:00",
+  "engine_account": "acct3",
+  "market": {
+    "is_open": false,
+    "next_open": "2026-09-21T09:30:00-04:00",
+    "next_close": "2026-09-21T16:00:00-04:00"
+  },
+  "rules": {
+    "close_profit_pct": 50,
+    "roll_dte": 21,
+    "force_close_dte": 7,
+    "stop_loss_pct": 250,
+    "max_position_pct": 5.0,
+    "quarantine_max_position_pct": 1.0,
+    "sector_cap_pct": 20.0,
+    "iv_gate_fail_open": false
+  },
+  "accounts": [
+    {
+      "id": "acct3",
+      "name": "Engine",
+      "broker": "Alpaca",
+      "mode": "paper",
+      "traded": true,
+      "error": null,
+      "account": {
+        "equity": 73272.45,
+        "day_pnl": -116.0,
+        "buying_power": 218070.6,
+        "options_buying_power": 54517.65,
+        "cash": 66117.65,
+        "short_put_collateral": 11600.0,
+        "cash_reserve_pct": 74.4,
+        "unrealized_pl": -18505.01262,
+        "open_orders": 1,
+        "account_number": "PA3XXXXXXXXX"
+      },
+      "stats": {
+        "inception_equity": 100000.0,
+        "inception_date": "2026-04-08",
+        "premium_mtd": 140.0,
+        "trades_closed": 46,
+        "win_rate": 0.17391304347826086,
+        "profit_factor": 0.060331660484398864,
+        "expectancy": -187.2391304347826,
+        "window_days": 90
+      },
+      "equity_curve": [
+        {
+          "date": "2026-04-08",
+          "equity": 100000.0
+        },
+        {
+          "date": "2026-04-09",
+          "equity": 100000.0
+        },
+        {
+          "date": "2026-09-19",
+          "equity": 73388.45
+        }
+      ],
+      "positions": [
+        {
+          "symbol": "GEO",
+          "occ": "GEO261016P00029000",
+          "qty": 4.0,
+          "mark": 0.85,
+          "pnl_usd": 60.0,
+          "flags": [],
+          "credit": 1.0,
+          "kind": "csp",
+          "strike": 29.0,
+          "expiry": "2026-10-16",
+          "dte": 27,
+          "multiplier": 100,
+          "pnl_pct": 15.000000000000002,
+          "action": "hold",
+          "sector": "defensive"
+        },
+        {
+          "symbol": "FJET",
+          "occ": null,
+          "qty": 4570.0,
+          "mark": 1.64,
+          "pnl_usd": -18565.01262,
+          "flags": [
+            "working: sell 4261 limit @ 5.71 gtc"
+          ],
+          "kind": "stock",
+          "cost": 5.702366,
+          "multiplier": 1,
+          "pnl_pct": -71.24000809488552,
+          "action": "quarantine",
+          "sector": "space_micro"
+        }
+      ]
+    }
+  ],
+  "modules": [
+    {
+      "name": "loop heartbeat",
+      "note": "written every cycle; watchdog cancels orders if stale",
+      "kind": "interval",
+      "interval_s": 300,
+      "last_seen": null,
+      "status": "stale"
+    },
+    {
+      "name": "whale feed",
+      "note": "last poll attempt (CapitolTrades)",
+      "kind": "interval",
+      "interval_s": 1800,
+      "last_seen": null,
+      "status": "idle"
+    },
+    {
+      "name": "weekly scan",
+      "note": "Monday pre-market",
+      "kind": "scheduled",
+      "every": "weekly",
+      "last_run": null,
+      "expected": "2026-09-14",
+      "missed": 3,
+      "status": "stale"
+    }
+  ],
+  "events": [
+    {
+      "ts": "2026-08-21T22:22:39.937803+00:00",
+      "module": "wheel",
+      "account": null,
+      "level": "info",
+      "text": "[WHEEL] 3/3 universe tickers are UNREACHABLE at $1 equity \u2014 one contract exceeds the $0 per-trade cap: AAA ($50), BBB ($50), CCC ($50)  (+1 similar)"
+    },
+    {
+      "ts": "2026-08-21T22:22:39.928775+00:00",
+      "module": "wheel",
+      "account": "acct3",
+      "level": "trade",
+      "text": "SELL CSP CCJ 4x $20.0 exp 2026-09-04 @ $0.50/sh credit ($200 total) \u2014 underlying $21.00"
+    },
+    {
+      "ts": "2026-08-21T22:22:39.920082+00:00",
+      "module": "wheel",
+      "account": "acct3",
+      "level": "warn",
+      "text": "[RISK] CSP blocked \u2014 CSP CCJ: sector 'nuclear_uranium' would hold $19,950 > 20% cap ($18,000) [sector cap]"
+    }
+  ],
+  "alerts": [
+    {
+      "level": "error",
+      "text": "loop heartbeat is stale"
+    },
+    {
+      "level": "error",
+      "text": "ipo scan is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "eligibility check is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "morning briefing is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "IV snapshot is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "derivatives scan is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "daily report is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "weekly scan is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "universe screen is stale (last run None, missed 3)"
+    },
+    {
+      "level": "error",
+      "text": "weekly wrap-up is stale (last run None, missed 3)"
+    }
+  ],
+  "errors": [],
+  "_notes": {
+    "producer": "execution/dashboard_export.py build_state(); the page and dashboard_tui.py render the same dict",
+    "accounts": "engine account first (traded=true); others come from ALPACA_ACCOUNTS and are watched only. An account with `error` has null account/stats.",
+    "stats": "profit_factor / expectancy / win_rate / trades_closed come from decision_logic and exist only for the traded account (null for watched). premium_mtd = option sells minus option buys this month, from broker fills.",
+    "account.cash_reserve_pct": "free cash: (cash - short-put collateral) / equity",
+    "positions.kind": "csp | cc | short_call | long_put | long_call | stock",
+    "positions.action": "the position_management rule the mark currently sits in: hold | close_50 | roll | force_close | stop | quarantine. The dashboard's reading, not the manager's queue.",
+    "modules.status": "ok | late | stale | idle (market-hours module, market closed) | blocked. Scheduled modules carry last_run / expected / missed; interval modules carry last_seen / interval_s.",
+    "market": "from Alpaca /v2/clock, never a local clock",
+    "events": "newest first, last 50 insights with same-source bursts collapsed"
+  }
+}

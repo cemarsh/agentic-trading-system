@@ -45,6 +45,8 @@ python execution/dynamic_universe.py --list     # policy-promoted wheel candidat
 python execution/position_manager.py            # one close/roll cycle against live positions
 python execution/daily_journal.py               # regenerate a day's wrap-up (idempotent)
 python execution/heartbeat_check.py             # deadman check (normally on a 5-min timer)
+python execution/dashboard_tui.py               # read-only terminal dashboard (--once, --from-file)
+python execution/dashboard_serve.py             # web dashboard on 127.0.0.1:8765 (trading-dashboard.service)
 ```
 
 ### Deploy

@@ -1,0 +1,29 @@
+[Unit]
+Description=Trading dashboard (read-only web view + snapshot exporter)
+After=network-online.target
+Wants=network-online.target
+# Deliberately NOT tied to trading.service (no BindsTo/PartOf/Requires): the dashboard
+# is read-only and runs beside the loop, so a dashboard crash can never stop or restart
+# trading, and a trading restart doesn't blank the view. No OnFailure alert either —
+# the page flags a stale snapshot itself, and the TUI works without this unit.
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/projects/trading
+EnvironmentFile=/home/ubuntu/projects/trading/.env
+Environment=PYTHONUNBUFFERED=1
+# Loopback only — the page has no auth. View it with: ssh -L 8765:127.0.0.1:8765 workstation
+Environment=DASHBOARD_BIND=127.0.0.1
+Environment=DASHBOARD_PORT=8765
+ExecStart=/home/ubuntu/projects/trading/venv/bin/python execution/dashboard_serve.py
+Restart=on-failure
+RestartSec=30
+# Lower priority than the loop: if the box is short on CPU, the loop wins.
+Nice=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-dashboard
+
+[Install]
+WantedBy=multi-user.target
