@@ -721,7 +721,7 @@ Access app with one policy, **Owner only** (chris@cloudmagicgroup.com, email one
 login. The server binds 0.0.0.0 but answers only loopback + pve01 (`DASHBOARD_ALLOW_FROM`) —
 VM 117 has no host firewall; other LAN clients get 403. Created with `cf-token auto --preset tunnel`
 (token revoked after). To add a viewer: add an include rule to the app's policy in Zero Trust.
-- [ ] First login through Access (needs the OTP email) — the one step not verified from here.
+- [x] First login through Access — confirmed by the owner 2026-09-19.
 - [ ] Separate finding: `ainews.cloudmagic.software` and `kanban.cloudmagic.software` have **no**
       Access app, and kanban runs `DISABLE_AUTH=true` — both are publicly readable. Deliberate?
 
