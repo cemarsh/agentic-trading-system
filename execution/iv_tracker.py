@@ -25,7 +25,7 @@ import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -59,7 +59,7 @@ def _get_iv_from_alpaca(ticker: str, headers: dict) -> Optional[float]:
         resp = requests.get(
             f"{ALPACA_DATA_BASE}/v1beta1/options/snapshots/{ticker}",
             headers=headers,
-            params={"feed": "indicative", "limit": 100, "type": "call"},
+            params={"feed": "indicative", "limit": "100", "type": "call"},
             timeout=20,
         )
         resp.raise_for_status()
@@ -143,23 +143,23 @@ def _get_iv_from_tradier(ticker: str, tradier_token: str) -> Optional[float]:
         return None
 
 
-def snapshot_all_tickers(settings=None, alpaca_headers: dict = None) -> dict:
+def snapshot_all_tickers(settings=None, alpaca_headers: Optional[dict] = None) -> dict:
     """
     Fetch current IV for all tickers in wheel + derivatives universe.
     Stores results in the iv_history Postgres table.
     Returns dict of {ticker: iv_value}.
     """
     cfg = settings or cfg_module.load()
-    tickers = set(cfg.wheel.tickers)
+    ticker_set = set(cfg.wheel.tickers)
     # Signal-promoted tickers must be snapshotted too, or promotion is inert: the
     # IV gate is hard, so a name with no history can never trade no matter how many
     # policy signals name it. Promotion's whole purpose is to start this clock.
     try:
         from execution.dynamic_universe import active as _promoted
-        tickers |= set(_promoted())
+        ticker_set |= set(_promoted())
     except Exception as e:
         print(f"[IV] signal-candidate lookup failed ({e})")
-    tickers = list(tickers)
+    tickers = sorted(ticker_set)
 
     if alpaca_headers is None:
         alpaca_headers = {
@@ -225,7 +225,7 @@ def get_iv_rank(ticker: str, db_url: str) -> dict:
     """
     import psycopg2
     import psycopg2.extras
-    result = {
+    result: dict[str, Any] = {
         "ticker": ticker,
         "current_iv": None,
         "iv_rank": None,

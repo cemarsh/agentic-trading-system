@@ -28,13 +28,13 @@ import argparse
 import os
 import re
 import sys
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta, tzinfo
 from pathlib import Path
 from typing import Optional
 
 try:
     from zoneinfo import ZoneInfo
-    MARKET_TZ = ZoneInfo("America/New_York")
+    MARKET_TZ: tzinfo = ZoneInfo("America/New_York")
 except ImportError:
     MARKET_TZ = timezone.utc
 
@@ -83,7 +83,7 @@ def read_weeklies(start: date, end: date) -> list:
     Anchoring on the Monday (not the filename's year) keeps a week that straddles a
     month boundary attached to exactly one month rather than both or neither.
     """
-    out = []
+    out: list = []
     if not WEEKLY_DIR.exists():
         return out
     for path in sorted(WEEKLY_DIR.glob("*.md")):
@@ -99,7 +99,7 @@ def read_weeklies(start: date, end: date) -> list:
 
 def read_monthlies(start: date, end: date) -> list:
     """Monthly wrap-ups whose month falls in [start, end]."""
-    out = []
+    out: list = []
     if not MONTHLY_DIR.exists():
         return out
     for path in sorted(MONTHLY_DIR.glob("*.md")):

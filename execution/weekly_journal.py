@@ -12,13 +12,13 @@ Trigger: Friday after 4:15 PM ET, once per ISO week (dedup key: "YYYY-Www").
 import json
 import os
 import sys
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta, tzinfo
 from pathlib import Path
 from typing import Optional
 
 try:
     from zoneinfo import ZoneInfo
-    MARKET_TZ = ZoneInfo("America/New_York")
+    MARKET_TZ: tzinfo = ZoneInfo("America/New_York")
 except ImportError:
     MARKET_TZ = timezone.utc
 
@@ -57,7 +57,7 @@ def read_daily_journals(week_start: date) -> list[dict]:
 
 def query_research_signals(week_start: date, settings) -> dict:
     """Fetch trading_signals and research_briefs created this week from postgres."""
-    out = {"signals": [], "briefs": []}
+    out: dict[str, list] = {"signals": [], "briefs": []}
     if not settings.database.url:
         return out
     try:

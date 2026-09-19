@@ -10,12 +10,12 @@ import argparse
 import json
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
 
 try:
     from zoneinfo import ZoneInfo
-    MARKET_TZ = ZoneInfo("America/New_York")
+    MARKET_TZ: tzinfo = ZoneInfo("America/New_York")
 except ImportError:
     MARKET_TZ = timezone.utc
 
@@ -288,7 +288,7 @@ def run_scheduled_tasks(
         except Exception as e:
             print(f"[DAILY] last_status_report parse error: {e}")
 
-    if daily_due and notifier:
+    if daily_due and notifier and report_day:  # daily_due implies report_day; say so
         try:
             account = alpaca.get_account() if alpaca else {}
             equity = float(account.get("equity", 0) or 0)

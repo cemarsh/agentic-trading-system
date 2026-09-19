@@ -8,7 +8,7 @@ import os
 import yaml
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 CONFIG_PATH = Path(__file__).parent / "strategy_params.yaml"
 
@@ -110,12 +110,12 @@ class ProtectionConfig:
     ladder_drop_pct: float
     ladder_buy_shares: int
     max_ladder_rungs: int = 3  # hard cap on ladder buys per ticker (prevents runaway averaging-down)
-    no_auto_manage: list = None  # tickers the protective logic ignores (no trailing stop / no ladder)
+    no_auto_manage: Optional[list] = None  # tickers the protective logic ignores (no trailing stop / no ladder)
     # Catastrophic backstop applied to EVERY equity long, no_auto_manage included.
     # no_auto_manage exists to stop the ladder averaging down, not to remove all
     # downside protection — FJET fell 31% with nothing watching it. 0 disables.
     max_equity_loss_pct: float = 0.0
-    catastrophic_exempt: list = None  # tickers held under an explicit manual exit plan
+    catastrophic_exempt: Optional[list] = None  # tickers held under an explicit manual exit plan
 
 
 @dataclass
@@ -207,11 +207,12 @@ class Settings:
     regime: RegimeConfig
     hedge: HedgeConfig
     anthropic: AnthropicConfig
-    position_management: PositionManagementConfig = None
-    risk: RiskConfig = None
-    universe: UniverseConfig = None
-    live_gates: LiveGatesConfig = None
-    feeds: FeedsConfig = None
+    # load() always sets these; None only when a Settings is built by hand (tests).
+    position_management: Optional[PositionManagementConfig] = None
+    risk: Optional[RiskConfig] = None
+    universe: Optional[UniverseConfig] = None
+    live_gates: Optional[LiveGatesConfig] = None
+    feeds: Optional[FeedsConfig] = None
 
 
 def load() -> Settings:

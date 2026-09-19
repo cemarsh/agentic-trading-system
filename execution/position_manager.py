@@ -164,7 +164,7 @@ class PositionManager:
         Returns:
             {"closed": [<symbol>, ...], "rolled": [<symbol>, ...]}
         """
-        result = {"closed": [], "rolled": []}
+        result: dict[str, list] = {"closed": [], "rolled": []}
 
         option_positions = [
             p for p in positions

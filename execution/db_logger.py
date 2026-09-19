@@ -211,12 +211,13 @@ def log_decision(
     return row_id
 
 
-def update_status(row_id: int, status: str, order_id: str = None, pnl: float = None, settings=None):
+def update_status(row_id: int, status: str, order_id: Optional[str] = None,
+                  pnl: Optional[float] = None, settings=None):
     cfg = settings or cfg_module.load()
     with get_connection(cfg) as conn:
         with conn.cursor() as cur:
             fields = ["status = %s"]
-            values = [status]
+            values: list = [status]
             if order_id:
                 fields.append("order_id = %s")
                 values.append(order_id)

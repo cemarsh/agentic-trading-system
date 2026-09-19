@@ -31,7 +31,7 @@ import math
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Mapping
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -82,7 +82,7 @@ def correlation(a: Sequence[float], b: Sequence[float]) -> Optional[float]:
 
 def max_correlation_to_book(
     candidate_returns: Sequence[float],
-    book_returns: Dict[str, Sequence[float]],
+    book_returns: Mapping[str, Sequence[float]],
 ) -> tuple:
     """
     (worst_corr, worst_ticker) against everything currently held.
@@ -116,7 +116,7 @@ def _nearest_friday(weeks_out: int) -> str:
 
 def screen_ticker(
     alpaca_client, ticker: str, cfg,
-    book_returns: Dict[str, Sequence[float]],
+    book_returns: Mapping[str, Sequence[float]],
     per_trade_cap: float,
 ) -> dict:
     """
@@ -263,7 +263,8 @@ def run_screen(alpaca_client=None, settings=None, promote: bool = False,
     print(f"[SCREEN] correlating against held book: {', '.join(book) or '(empty book)'}")
 
     existing = {t.upper() for t in cfg.wheel.tickers}
-    passed, rejected = [], []
+    passed: list[dict] = []
+    rejected: list[dict] = []
     for ticker in u.seed_pool:
         t = ticker.upper()
         if t in existing:

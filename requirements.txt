@@ -10,4 +10,8 @@ rich>=13.7.0           # dashboard_tui.py
 pyyaml>=6.0.1
 pytest>=8.0.0
 mypy>=1.9.0
+types-PyYAML           # mypy stubs (dev only)
+types-psycopg2
+types-psutil
+types-requests
 ruff>=0.4.0

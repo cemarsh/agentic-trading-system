@@ -240,7 +240,7 @@ class ProtectiveLogic:
         drop_pct = (reference - current_price) / reference * 100
         return drop_pct >= prot.ladder_drop_pct
 
-    def execute_ladder(self, ticker: str, current_price: float = None) -> Optional[dict]:
+    def execute_ladder(self, ticker: str, current_price: Optional[float] = None) -> Optional[dict]:
         """Submit a ladder buy order and record the rung price (next rung needs a
         further step down from here)."""
         if not self._alpaca:

@@ -682,7 +682,7 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
       file fails 2 under the same shift. New fixtures: use `occ()`, never a literal OCC date.
 - [x] `mypy execution/` module-path error — **fixed 09-19** with `mypy.ini`
       (`explicit_package_bases = True`), so the documented command works unchanged.
-- [ ] That fix un-hid the real backlog: **147 errors in 22 files** (79 left after the union-attr pass below) that mypy had never reported.
+- [ ] That fix un-hid the real backlog: **147 errors in 22 files** (0 left — see the two passes below) that mypy had never reported.
       Mostly `union-attr` (67 — Optional values used without a None check) and `assignment` (26);
       19 are missing third-party stubs (`types-requests`, `types-PyYAML`, …). Heaviest:
       strategy_advisor 22, daily_journal 17, iv_tracker 16, weekly_journal 15, morning_briefing 15,
@@ -698,7 +698,16 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
       truncated JSON); every caller already falls back on exceptions, so behavior is unchanged
       apart from honest log lines. Checked against real SDK `Message` objects on 1.5.0 (WSL) and
       0.104.1 (VM).
-- [ ] Remaining 79 mypy errors: `assignment` 26, `import-untyped` 19 (add `types-requests`,
-      `types-PyYAML`, …), `var-annotated` 9, `arg-type` 8, `operator` 7, others.
+- [x] **Remaining 79 mypy errors → 0 (09-19).** `mypy execution/` and `mypy config/` are clean.
+      19 were missing stubs (now in requirements: types-PyYAML/psycopg2/psutil/requests). The rest
+      were annotation gaps, not bugs: `= None` defaults typed as non-Optional (settings,
+      alpaca_client, db_logger, protective_logic), `_get()` typed `-> dict` while /positions and
+      /orders return lists (now `-> Any`), mixed-value dict literals mypy inferred as `object`
+      (policy SECTOR_MAP/SOURCES, iv_tracker result), and the py<3.9 `timezone.utc` fallback
+      clashing with `ZoneInfo`. Two looked like bugs and weren't: `live_readiness` reusing the
+      name `e` after an `except … as e` (loop reassigns it first — renamed), and
+      `date.fromisoformat(report_day)` with `report_day: Optional` (guarded by `daily_due`; now
+      explicit). Only runtime-visible changes: the IV snapshot iterates tickers sorted (was set
+      order), and `limit="100"` in one request (same query string).
 - [ ] The synthesis calls pin `claude-sonnet-4-6` / `claude-haiku-4-5-20251001`. Not changed here
       (a model change alters report content and cost); worth a deliberate decision.

@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -27,7 +27,7 @@ from bs4 import BeautifulSoup
 SIGNAL_CACHE = Path("logs/policy_signal_cache.json")
 
 # ── Sector map: keywords → tickers to act on ──────────────────────────────
-SECTOR_MAP = {
+SECTOR_MAP: dict[str, dict[str, Any]] = {
     "defense": {
         "keywords": ["defense", "military", "pentagon", "armed forces", "weapon",
                      "drone", "missile", "munition", "warfighter", "national security",
@@ -119,7 +119,7 @@ _KEYWORD_RE = {
 
 # ── Policy signal sources ──────────────────────────────────────────────────
 # selector=None means use the json_api fetcher instead of BeautifulSoup
-SOURCES = [
+SOURCES: list[dict[str, Any]] = [
     {
         "name": "White House Fact Sheets",
         "url": "https://www.whitehouse.gov/fact-sheets/",

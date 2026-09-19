@@ -13,13 +13,13 @@ import argparse
 import json
 import os
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
 from pathlib import Path
 from typing import Optional
 
 try:
     from zoneinfo import ZoneInfo
-    MARKET_TZ = ZoneInfo("America/New_York")
+    MARKET_TZ: tzinfo = ZoneInfo("America/New_York")
 except ImportError:
     MARKET_TZ = timezone.utc
 
@@ -400,7 +400,7 @@ class MorningBriefing:
         insights = _read_insights_for_date(target_date)
         policy_signals = _extract_policy_headlines(insights)
 
-        positions = []
+        positions: list = []
         if self._alpaca:
             try:
                 positions = self._alpaca.get_positions() or []

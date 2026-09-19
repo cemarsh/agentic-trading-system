@@ -75,7 +75,7 @@ def module_attribution(rows: list) -> dict:
 
 def conviction_calibration(rows: list) -> list:
     """[(bucket_label, trades, win_rate, avg_pnl)] — is conviction predictive at all?"""
-    out = []
+    out: list[tuple] = []
     for lo, hi in CONVICTION_BUCKETS:
         bucket = [r for r in rows if r.get("confidence") is not None and lo <= float(r["confidence"]) < hi]
         if not bucket:

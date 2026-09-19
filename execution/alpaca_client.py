@@ -8,7 +8,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -58,7 +58,8 @@ class AlpacaClient:
         self.data_url = "https://data.alpaca.markets"
         self._session = _build_retry_session()
 
-    def _get(self, path: str, params: dict = None, data_api: bool = False) -> dict:
+    def _get(self, path: str, params: Optional[dict] = None, data_api: bool = False) -> Any:
+        # Parsed JSON: an object for /account, a list for /positions and /orders.
         base = self.data_url if data_api else self.base_url
         resp = self._session.get(f"{base}{path}", headers=self._headers, params=params, timeout=20)
         resp.raise_for_status()
@@ -89,7 +90,7 @@ class AlpacaClient:
         return self._get("/v2/positions")
 
     def get_bars(self, ticker: str, timeframe: str = "1Min", limit: int = 10,
-                 start: str = None) -> list:
+                 start: Optional[str] = None) -> list:
         params = {"timeframe": timeframe, "limit": limit}
         if start:
             params["start"] = start  # ISO date; required to get >1 day of history on the free feed
@@ -129,7 +130,7 @@ class AlpacaClient:
         side: str,
         order_type: str = "market",
         time_in_force: str = "day",
-        limit_price: float = None,
+        limit_price: Optional[float] = None,
     ) -> dict:
         body = {
             "symbol": ticker,
@@ -142,7 +143,7 @@ class AlpacaClient:
             body["limit_price"] = str(limit_price)
         return self._post("/v2/orders", body)
 
-    def get_options_contracts(self, underlying: str, expiration_date: str = None) -> list:
+    def get_options_contracts(self, underlying: str, expiration_date: Optional[str] = None) -> list:
         params = {"underlying_symbols": underlying}
         if expiration_date:
             params["expiration_date"] = expiration_date
@@ -155,7 +156,7 @@ class AlpacaClient:
         qty: int,
         side: str,
         order_type: str = "market",
-        limit_price: float = None,
+        limit_price: Optional[float] = None,
     ) -> dict:
         body = {
             "symbol": symbol,

@@ -45,7 +45,7 @@ class Notifier:
         self.to = self.cfg.notifications.alert_email
 
     def send(self, subject: str, body: str, is_html: bool = False):
-        params = {
+        params: resend.Emails.SendParams = {
             "from": "Trading System <noreply@cloudmagicgroup.com>",
             "to": [self.to],
             "subject": _ascii_safe(subject),

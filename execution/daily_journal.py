@@ -17,13 +17,13 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, tzinfo
 from pathlib import Path
 from typing import Optional
 
 try:
     from zoneinfo import ZoneInfo
-    MARKET_TZ = ZoneInfo("America/New_York")
+    MARKET_TZ: tzinfo = ZoneInfo("America/New_York")
 except ImportError:  # py <3.9
     MARKET_TZ = timezone.utc
 
@@ -135,7 +135,7 @@ def read_policy_cache_for_day(target_date: date) -> list:
 
 def query_db_for_day(target_date: date, settings) -> dict:
     """Fetch today's decision_logic, strategy_analysis, strategy_lessons rows."""
-    out = {"decisions": [], "analyses": [], "lessons": []}
+    out: dict[str, list] = {"decisions": [], "analyses": [], "lessons": []}
     if not settings.database.url:
         return out
     try:
@@ -368,7 +368,7 @@ def wrap_up(
     equity = 0.0
     realized_pnl = 0.0
     unrealized_pnl = 0.0
-    positions = []
+    positions: list[dict] = []
     mode = "paper" if cfg.guardrails.paper_mode else "live"
 
     if alpaca_client:

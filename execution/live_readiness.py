@@ -87,10 +87,10 @@ def _paper_performance(alpaca, window_days: int) -> Tuple[float, float, str]:
 
     peak = equity[0]
     max_dd = 0.0
-    for e in equity:
-        peak = max(peak, e)
+    for eq in equity:
+        peak = max(peak, eq)
         if peak > 0:
-            max_dd = max(max_dd, (peak - e) / peak * 100)
+            max_dd = max(max_dd, (peak - eq) / peak * 100)
 
     return profit_factor, max_dd, f"{len(equity)} days of history"
 
