@@ -711,3 +711,17 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
       order), and `limit="100"` in one request (same query string).
 - [ ] The synthesis calls pin `claude-sonnet-4-6` / `claude-haiku-4-5-20251001`. Not changed here
       (a model change alters report content and cost); worth a deliberate decision.
+
+**Public link (09-19): https://trading.cloudmagic.software.** Same pattern as the other
+`*.cloudmagic.software` apps — remotely-managed tunnel `pve01-trading`, connector
+`cloudflared-trading.service` on **pve01** (token in `/etc/cloudflared/trading.env`, 0600), origin
+`http://10.1.50.117:8765`. Unlike ainews/kanban (no Access app at all), it sits behind a Cloudflare
+Access app with one policy, **Owner only** (chris@cloudmagicgroup.com, email one-time PIN,
+24 h session). Verified unauthenticated `/`, `/index.html` and `/state.json` all 302 to the Access
+login. The server binds 0.0.0.0 but answers only loopback + pve01 (`DASHBOARD_ALLOW_FROM`) —
+VM 117 has no host firewall; other LAN clients get 403. Created with `cf-token auto --preset tunnel`
+(token revoked after). To add a viewer: add an include rule to the app's policy in Zero Trust.
+- [ ] First login through Access (needs the OTP email) — the one step not verified from here.
+- [ ] Separate finding: `ainews.cloudmagic.software` and `kanban.cloudmagic.software` have **no**
+      Access app, and kanban runs `DISABLE_AUTH=true` — both are publicly readable. Deliberate?
+

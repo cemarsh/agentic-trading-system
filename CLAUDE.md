@@ -46,7 +46,9 @@ python execution/position_manager.py            # one close/roll cycle against l
 python execution/daily_journal.py               # regenerate a day's wrap-up (idempotent)
 python execution/heartbeat_check.py             # deadman check (normally on a 5-min timer)
 python execution/dashboard_tui.py               # read-only terminal dashboard (--once, --from-file)
-python execution/dashboard_serve.py             # web dashboard on 127.0.0.1:8765 (trading-dashboard.service)
+python execution/dashboard_serve.py             # web dashboard :8765 (trading-dashboard.service)
+# Public: https://trading.cloudmagic.software — Cloudflare Access (owner email, OTP), tunnel
+# pve01-trading, connector cloudflared-trading.service on pve01 -> 10.1.50.117:8765
 ```
 
 ### Deploy
