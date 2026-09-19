@@ -54,6 +54,14 @@
 
 ## Learnings & Annealings
 
+- **2026-09-18**: **FJET exit evaluation — PRIORITY ONE:** With 309 shares available to sell, execute a partial liquidation at open to begin reducing cost basis drag. Even selling 309 shares at $1.71 recovers ~$529 and incrementally reduces the unrealized loss denominator. Check whether the remaining 4,261 shares are locked by a position constraint or system rule — if locked by no mechanism, escalate to full exit. *This is the only path to unlocking the wheel.*
+
+- **2026-09-17**: **FJET triage is the priority.** With 309 shares available (vs. 4,570 held), determine what is locking the remaining 4,261 shares. If it is a CSP assignment or margin hold, identify the obligation. If shares can be freed, evaluate a staged exit — even at $1.85 crystallizing the loss unlocks the wheel and restores income capacity. **The unrealized loss is already -$17,605; holding further requires a thesis, not inertia.**
+
+- **2026-09-16**: **FJET — urgent review required:** Determine why only 309/4,570 shares are `qty_available`. If the remaining 4,261 shares are held as collateral for the GEO short put or another margin requirement, calculate exact margin release needed to free shares. Consider whether partial liquidation of available 309 shares is worth executing to begin reducing cost basis, or if it's immaterial (~$585 proceeds).
+
+- **2026-09-15**: **FJET — assess exit or covered call:** With FJET options now listed, evaluate selling covered calls on the 309 available shares (not the restricted 4,261) at the nearest OTM strike. Even at low IV (8%), generating *any* premium against this dead position is better than zero. Check: what is restricting the 4,261 shares — if they're locked against a margin/options obligation, clarify before acting.
+
 - **2026-09-11**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
 
 - **2026-09-10**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
