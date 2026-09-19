@@ -673,8 +673,9 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
 - [ ] Add the watched paper accounts' keys to the VM `.env` (and WSL `.env` — see env-sync rule).
 - [ ] Mon 09-21: weekly scan's first run with the fix — the dashboard's `weekly scan` row should go
       green and `strategy_analysis` should get rows.
-- [ ] `tests/test_stale_order_reprice.py` has 2 failures that are a **date time-bomb**, not a
+- [x] `tests/test_stale_order_reprice.py` has 2 failures that are a **date time-bomb**, not a
       regression: fixtures use `KTOS260904P…`, which expired 2026-09-04, so the manager skips it.
-      Pin the contract to a future expiry relative to `date.today()`.
+      Pin the contract to a future expiry relative to `date.today()`. **Done 09-19:** `_occ()`
+      builds the symbol 30 days out; suite is 239/239.
 - [ ] `mypy execution/` module-path error: `--explicit-package-bases` gets past it (the new
       dashboard modules are clean under it). Consider adding that to the documented command.

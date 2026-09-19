@@ -1,7 +1,7 @@
 """Stale close-order re-pricing — how a resting order muted its own position."""
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -23,6 +23,16 @@ def _cfg(stale=180, attempts=3, aggression=0.02):
     pm.max_reprice_attempts = attempts
     pm.reprice_aggression = aggression
     return cfg
+
+
+def _occ(root, strike="00052000", days_out=30):
+    """A short put that is still live whenever the suite runs. These fixtures were
+    hard-coded to 260904, and once that date passed the manager skipped the position
+    as expired (DTE < 0) — the tests broke on the calendar, not on the code."""
+    return f"{root}{date.today() + timedelta(days=days_out):%y%m%d}P{strike}"
+
+
+KTOS = _occ("KTOS")
 
 
 def _order(order_id, symbol, age_seconds):
@@ -69,7 +79,7 @@ def test_stale_order_is_cancelled_and_cleared_for_reprice():
     alpaca.cancel_order.return_value = True
     pm = PositionManager(settings=_cfg(), alpaca_client=alpaca)
 
-    assert pm._reprice_stale_order("KTOS260904P00052000", _order("o1", "K", 400), 400) is True
+    assert pm._reprice_stale_order(KTOS, _order("o1", "K", 400), 400) is True
     alpaca.cancel_order.assert_called_once_with("o1")
 
 
@@ -77,7 +87,7 @@ def test_reprice_stops_after_max_attempts():
     alpaca = MagicMock()
     alpaca.cancel_order.return_value = True
     pm = PositionManager(settings=_cfg(attempts=3), alpaca_client=alpaca)
-    sym = "KTOS260904P00052000"
+    sym = KTOS
 
     assert [pm._reprice_stale_order(sym, _order(f"o{i}", "K", 400), 400) for i in range(3)] \
         == [True, True, True]
@@ -91,7 +101,7 @@ def test_failed_cancel_does_not_consume_an_attempt():
     alpaca = MagicMock()
     alpaca.cancel_order.return_value = False
     pm = PositionManager(settings=_cfg(), alpaca_client=alpaca)
-    sym = "KTOS260904P00052000"
+    sym = KTOS
 
     assert pm._reprice_stale_order(sym, _order("o1", "K", 400), 400) is False
     assert pm._reprice_stale_order(sym, _order("o1", "K", 400), 400) is False
@@ -112,10 +122,10 @@ def test_attempts_are_tracked_per_symbol():
     alpaca.cancel_order.return_value = True
     pm = PositionManager(settings=_cfg(attempts=1), alpaca_client=alpaca)
 
-    assert pm._reprice_stale_order("AAA260904P00052000", _order("o1", "A", 400), 400) is True
-    assert pm._reprice_stale_order("AAA260904P00052000", _order("o2", "A", 400), 400) is False
+    assert pm._reprice_stale_order(_occ("AAA"), _order("o1", "A", 400), 400) is True
+    assert pm._reprice_stale_order(_occ("AAA"), _order("o2", "A", 400), 400) is False
     # A different symbol has its own budget.
-    assert pm._reprice_stale_order("BBB260904P00052000", _order("o3", "B", 400), 400) is True
+    assert pm._reprice_stale_order(_occ("BBB"), _order("o3", "B", 400), 400) is True
 
 
 def test_disabled_when_stale_seconds_is_zero():
@@ -126,10 +136,10 @@ def test_disabled_when_stale_seconds_is_zero():
 
 def test_run_cycle_skips_symbol_with_fresh_working_order():
     alpaca = MagicMock()
-    alpaca.get_open_orders.return_value = [_order("o1", "KTOS260904P00052000", 30)]
+    alpaca.get_open_orders.return_value = [_order("o1", KTOS, 30)]
     pm = PositionManager(settings=_cfg(stale=180), alpaca_client=alpaca)
 
-    positions = [{"symbol": "KTOS260904P00052000", "qty": "-1", "asset_class": "us_option",
+    positions = [{"symbol": KTOS, "qty": "-1", "asset_class": "us_option",
                   "avg_entry_price": "2.10", "unrealized_pl": "-1790"}]
     result = pm.run_cycle(positions)
     assert result == {"closed": [], "rolled": []}
@@ -139,19 +149,19 @@ def test_run_cycle_skips_symbol_with_fresh_working_order():
 def test_run_cycle_repricies_symbol_with_stale_working_order():
     """The KTOS case: stop already fired, order never filled, loss still running."""
     alpaca = MagicMock()
-    alpaca.get_open_orders.return_value = [_order("o1", "KTOS260904P00052000", 900)]
+    alpaca.get_open_orders.return_value = [_order("o1", KTOS, 900)]
     alpaca.cancel_order.return_value = True
     alpaca.get_option_quote.return_value = {"bid": 19.0, "ask": 20.0, "mid": 19.5}
     alpaca.submit_option_order.return_value = {"id": "new"}
     pm = PositionManager(settings=_cfg(stale=180), alpaca_client=alpaca)
 
     # Entry 2.10, mark ~20.00 → about -852%, far past the 250% stop.
-    positions = [{"symbol": "KTOS260904P00052000", "qty": "-1", "asset_class": "us_option",
+    positions = [{"symbol": KTOS, "qty": "-1", "asset_class": "us_option",
                   "avg_entry_price": "2.10", "unrealized_pl": "-1790"}]
     result = pm.run_cycle(positions)
 
     alpaca.cancel_order.assert_called_once_with("o1")
-    assert result["closed"] == ["KTOS260904P00052000"]
+    assert result["closed"] == [KTOS]
     alpaca.submit_option_order.assert_called_once()
 
 
@@ -163,12 +173,12 @@ def test_reprice_escalates_the_limit_price():
     alpaca.submit_option_order.return_value = {"id": "new"}
     pm = PositionManager(settings=_cfg(stale=180, aggression=0.02), alpaca_client=alpaca)
 
-    positions = [{"symbol": "KTOS260904P00052000", "qty": "-1", "asset_class": "us_option",
+    positions = [{"symbol": KTOS, "qty": "-1", "asset_class": "us_option",
                   "avg_entry_price": "2.10", "unrealized_pl": "-1790"}]
 
     prices = []
     for age in (900, 900, 900):
-        alpaca.get_open_orders.return_value = [_order("o1", "KTOS260904P00052000", age)]
+        alpaca.get_open_orders.return_value = [_order("o1", KTOS, age)]
         pm.run_cycle(positions)
         prices.append(alpaca.submit_option_order.call_args.kwargs["limit_price"])
 
