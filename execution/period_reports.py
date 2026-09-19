@@ -41,6 +41,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
+from execution.claude_text import response_text
 from execution.performance import (
     collect,
     build_needle_section,
@@ -252,7 +253,7 @@ def _synthesize(system_prompt: str, user_input: str, settings, tag: str,
             }],
             messages=[{"role": "user", "content": user_input}],
         )
-        return msg.content[0].text.strip()
+        return response_text(msg, tag=tag)
     except Exception as e:
         print(f"[{tag}] Claude synthesis failed: {e}")
         return None

@@ -27,7 +27,8 @@ def test_digest_accepts_datetime_and_string_timestamps():
     cfg = MagicMock()
     cfg.anthropic.api_key = "test-key"
     client = MagicMock()
-    client.messages.create.return_value.content = [MagicMock(text="  the digest  ")]
+    client.messages.create.return_value.content = [MagicMock(type="text", text="  the digest  ")]
+    client.messages.create.return_value.stop_reason = "end_turn"
     lessons = [
         _lesson(datetime(2026, 9, 1, 14, 30, tzinfo=timezone.utc)),  # what Postgres returns
         _lesson("2026-09-02T15:00:00+00:00", ticker="CCJ"),          # a pre-formatted string

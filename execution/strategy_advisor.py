@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import anthropic
 from config import settings as cfg_module
+from execution.claude_text import response_text
 
 # ---------------------------------------------------------------------------
 # System prompt — cached (large, static, reused across every call)
@@ -125,7 +126,8 @@ Return a JSON object with exactly these fields:
         messages=[{"role": "user", "content": user_prompt}],
     )
 
-    raw = message.content[0].text.strip()
+    # Truncated JSON can't be parsed; fail with the real reason instead of a JSONDecodeError.
+    raw = response_text(message, allow_truncated=False, tag="ADVISOR")
     try:
         result = json.loads(raw)
     except json.JSONDecodeError:
@@ -196,7 +198,7 @@ Be concise, direct, and specific. Reference actual tickers and trades where rele
         messages=[{"role": "user", "content": user_prompt}],
     )
 
-    return message.content[0].text.strip()
+    return response_text(message, tag="ADVISOR")
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
+from execution.claude_text import response_text
 
 PROJECT_ROOT = Path(__file__).parent.parent
 JOURNAL_DIR = PROJECT_ROOT / "journal"
@@ -313,7 +314,7 @@ NOTEBOOKLM_RESEARCH_BRIEFS ({len(research.get('briefs', []))} briefs this week):
             }],
             messages=[{"role": "user", "content": user_input}],
         )
-        return msg.content[0].text.strip()
+        return response_text(msg, tag="WEEKLY")
     except Exception as e:
         print(f"[WEEKLY] Claude synthesis failed: {e}")
         return None

@@ -62,6 +62,8 @@ def main() -> None:
         return
 
     # --- Still excess — ensure the resting GTC breakeven sell exists ---
+    if pos is None:  # unreachable: no position means qty 0, handled above. Explicit, not inferred.
+        return
     avg = float(pos["avg_entry_price"])
     breakeven = math.ceil(avg * 100) / 100  # >= cost basis ⇒ no realized loss
     excess = qty - TARGET_QTY

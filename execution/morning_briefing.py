@@ -26,6 +26,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
+from execution.claude_text import response_text
 from execution.daily_journal import log_insight, INSIGHTS_DIR
 from execution.position_manager import _parse_occ
 
@@ -301,7 +302,7 @@ def _synthesize_with_claude(prompt_body: str, target_date: date, settings) -> Op
             system=system_prompt,
             messages=[{"role": "user", "content": prompt_body}],
         )
-        return response.content[0].text.strip()
+        return response_text(response, tag="BRIEFING")
     except Exception as e:
         print(f"[BRIEFING] Claude synthesis failed: {e}")
         return None

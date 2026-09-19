@@ -682,9 +682,23 @@ and `universe screen` show **missed 1** (2026-09-14) — the service was down th
       file fails 2 under the same shift. New fixtures: use `occ()`, never a literal OCC date.
 - [x] `mypy execution/` module-path error — **fixed 09-19** with `mypy.ini`
       (`explicit_package_bases = True`), so the documented command works unchanged.
-- [ ] That fix un-hid the real backlog: **147 errors in 22 files** that mypy had never reported.
+- [ ] That fix un-hid the real backlog: **147 errors in 22 files** (79 left after the union-attr pass below) that mypy had never reported.
       Mostly `union-attr` (67 — Optional values used without a None check) and `assignment` (26);
       19 are missing third-party stubs (`types-requests`, `types-PyYAML`, …). Heaviest:
       strategy_advisor 22, daily_journal 17, iv_tracker 16, weekly_journal 15, morning_briefing 15,
       period_reports 14. The union-attr ones are worth a pass — they are the None-handling bugs
       the RTH-only-data and `get_bars() or []` incidents were made of. The dashboard files are clean.
+- [x] **union-attr pass (09-19): 67 → 0.** Correction to the line above: only **1** was a None
+      check (`breakeven_monitor.py:70`, unreachable — made explicit). The other 66 were one
+      pattern at 6 Claude call sites, `message.content[0].text`, which assumes the first block is
+      text. On an empty or refused turn that raised a bare `IndexError: list index out of range`,
+      and `analyze_ticker` returned JSON cut off at `max_tokens` as if complete, so the ticker
+      fell out of the weekly scan as a "parse error". New `execution/claude_text.response_text()`
+      joins text blocks and raises `ClaudeNoText` naming the stop_reason (refusal / no text /
+      truncated JSON); every caller already falls back on exceptions, so behavior is unchanged
+      apart from honest log lines. Checked against real SDK `Message` objects on 1.5.0 (WSL) and
+      0.104.1 (VM).
+- [ ] Remaining 79 mypy errors: `assignment` 26, `import-untyped` 19 (add `types-requests`,
+      `types-PyYAML`, …), `var-annotated` 9, `arg-type` 8, `operator` 7, others.
+- [ ] The synthesis calls pin `claude-sonnet-4-6` / `claude-haiku-4-5-20251001`. Not changed here
+      (a model change alters report content and cost); worth a deliberate decision.

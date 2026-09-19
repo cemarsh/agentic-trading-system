@@ -30,6 +30,7 @@ except ImportError:  # py <3.9
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import settings as cfg_module
+from execution.claude_text import response_text
 
 PROJECT_ROOT = Path(__file__).parent.parent
 INSIGHTS_DIR = PROJECT_ROOT / "logs" / "insights"
@@ -258,7 +259,7 @@ def _synthesize_with_claude(prompt_input: str, settings) -> Optional[str]:
             }],
             messages=[{"role": "user", "content": prompt_input}],
         )
-        return msg.content[0].text.strip()
+        return response_text(msg, tag="JOURNAL")
     except Exception as e:
         print(f"[JOURNAL] Claude synthesis failed: {e}")
         return None
