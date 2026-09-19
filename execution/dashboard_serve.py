@@ -7,8 +7,13 @@ Serve the web dashboard: dashboard/index.html plus the snapshot it polls.
 One process, separate from trading.service (deploy/trading-dashboard.service). A worker
 thread calls dashboard_export.write_snapshot() on an interval; the HTTP handler only
 reads files. It serves exactly two paths, so nothing else under the repo (.env, logs,
-agent_state) is reachable. It binds loopback by default: the page has no auth, so
-reach it through an ssh tunnel, not an open port.
+agent_state) is reachable.
+
+The page has no auth of its own. It binds loopback by default (reach it with an ssh
+tunnel). For the public link, trading-dashboard.service binds all interfaces so the
+Cloudflare connector on pve01 can reach it, and DASHBOARD_ALLOW_FROM limits which
+client addresses get an answer — VM 117 runs no host firewall, so the allowlist is the
+LAN boundary. The login itself is Cloudflare Access on trading.cloudmagic.software.
 
 The page raises its own alert when the snapshot is older than 3 minutes, so a stuck
 exporter thread is visible from the browser rather than showing old numbers as current.
@@ -30,6 +35,9 @@ PAGE_PATH = Path("dashboard/index.html")
 BIND = os.environ.get("DASHBOARD_BIND", "127.0.0.1")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8765"))
 INTERVAL = max(15, int(os.environ.get("DASHBOARD_INTERVAL_SECONDS", "60")))
+# Client IPs that may connect. Loopback always; add the tunnel connector's address.
+ALLOW_FROM = {"127.0.0.1", "::1"} | {
+    a.strip() for a in os.environ.get("DASHBOARD_ALLOW_FROM", "").split(",") if a.strip()}
 
 
 def export_forever(stop: threading.Event) -> None:
@@ -54,6 +62,9 @@ class Handler(BaseHTTPRequestHandler):
     }
 
     def do_GET(self):
+        if self.client_address[0] not in ALLOW_FROM:
+            self.send_error(403)
+            return
         route = self.ROUTES.get(self.path.split("?", 1)[0])
         if not route:
             self.send_error(404)
@@ -81,7 +92,8 @@ def main():
     threading.Thread(target=export_forever, args=(stop,), daemon=True,
                      name="dashboard-export").start()
     server = ThreadingHTTPServer((BIND, PORT), Handler)
-    print(f"[DASH] serving http://{BIND}:{PORT}/ — snapshot every {INTERVAL}s")
+    print(f"[DASH] serving http://{BIND}:{PORT}/ — snapshot every {INTERVAL}s, "
+          f"answering {', '.join(sorted(ALLOW_FROM))}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

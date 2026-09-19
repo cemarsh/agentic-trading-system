@@ -13,8 +13,12 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/projects/trading
 EnvironmentFile=/home/ubuntu/projects/trading/.env
 Environment=PYTHONUNBUFFERED=1
-# Loopback only — the page has no auth. View it with: ssh -L 8765:127.0.0.1:8765 workstation
-Environment=DASHBOARD_BIND=127.0.0.1
+# The page has no auth of its own. Public access is https://trading.cloudmagic.software,
+# behind Cloudflare Access; the connector (cloudflared-trading.service) runs on pve01
+# (10.1.50.11), so bind all interfaces but answer only loopback + pve01 — VM 117 has no
+# host firewall. ssh -L 8765:127.0.0.1:8765 workstation still works.
+Environment=DASHBOARD_BIND=0.0.0.0
+Environment=DASHBOARD_ALLOW_FROM=10.1.50.11
 Environment=DASHBOARD_PORT=8765
 ExecStart=/home/ubuntu/projects/trading/venv/bin/python execution/dashboard_serve.py
 Restart=on-failure
