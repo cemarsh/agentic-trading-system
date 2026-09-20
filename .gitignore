@@ -41,3 +41,4 @@ test_policy.py
 
 # Project refresh logs
 .project-refresh/
+.claude/settings.local.json

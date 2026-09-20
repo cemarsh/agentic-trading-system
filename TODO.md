@@ -725,3 +725,33 @@ VM 117 has no host firewall; other LAN clients get 403. Created with `cf-token a
 - [ ] Separate finding: `ainews.cloudmagic.software` and `kanban.cloudmagic.software` have **no**
       Access app, and kanban runs `DISABLE_AUTH=true` — both are publicly readable. Deliberate?
 
+
+## 2026-09-19 (wrapup) — NEXT SESSION
+
+Everything below is deployed and running: VM 117 on `2569fe5`, units `trading`,
+`trading-heartbeat.timer`, `breakeven-monitor.timer`, `trading-dashboard` all active; 245 tests
+green on both hosts; `mypy execution/ config/` clean. Dashboard: https://trading.cloudmagic.software
+(Access, owner-only) or `ssh -L 8765:127.0.0.1:8765 workstation`, terminal view
+`venv/bin/python execution/dashboard_tui.py` on the VM.
+
+**Watch on Monday 2026-09-21 (first session with the fixes actually running):**
+- [ ] 00:00–09:30 ET — weekly scan's first run since the fix. Success = rows in
+      `strategy_analysis` (0 today) and the dashboard's `weekly scan` row turning green from
+      "missed 1". `universe screen` (Mon 11:00 ET) likewise.
+- [ ] One — and only one — "[WHALE] Congressional trade feed blocked" email. More than one means
+      the 24h blocked-source backoff isn't holding.
+- [ ] The dashboard should flip broker API / whale / policy feeds from `idle` to `ok` at 09:30,
+      and position marks stop saying "as of last close". If a feed stays idle, it isn't polling.
+
+**Open, in the order I'd take them:**
+- [ ] **Entry quality / exit enforcement** — the actual problem. 90-day PF 0.06, expectancy −$187,
+      win rate 17%. The dashboard now makes this visible on every load; nothing has been done
+      about it yet. FJET alone is −$18.6k of the −$18.5k unrealized.
+- [ ] Watched paper accounts: add `ALPACA_ACCOUNTS` + `ALPACA_KEY_<ID>`/`ALPACA_SECRET_<ID>` to the
+      VM `.env` (and WSL `.env` — separate files), then `systemctl restart trading-dashboard`.
+- [ ] Decide on the congressional feed replacement (House Clerk PTRs cover 9 of 11 tracked names).
+- [ ] `whale_watch.source_url` in the YAML is ignored; `fetch_recent_trades` hard-codes the URL.
+- [ ] Synthesis model pins (`claude-sonnet-4-6`, `claude-haiku-4-5-20251001`) — deliberate choice?
+- [ ] ainews/kanban have no Access app; kanban runs `DISABLE_AUTH=true`. Deliberate?
+- [ ] `strategy_analysis` still has 0 rows; the second uncorrelated engine is still unbuilt
+      (see the 08-21 sections — both predate today and neither moved).
