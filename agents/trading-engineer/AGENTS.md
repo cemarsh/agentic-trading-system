@@ -3,7 +3,7 @@
 ## 1. Project Discovery
 
 **Project**: Agentic Trading System  
-**Path**: `/home/stacksbyc/projects/trading/`  
+**Path**: `~/projects/trading/`  
 **Version**: 1.5.0  
 **Status**: Live (Paper Trading) — ThinkPad P70, systemd service  
 **Broker**: Alpaca Markets (paper mode)

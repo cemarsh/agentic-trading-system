@@ -33,4 +33,4 @@ This agent operates on PAPER TRADING only. Never switch to live mode without exp
 
 ## Key Skill
 
-`/home/stacksbyc/projects/.skills-db/stock-trading-advisor.skill` — wheel strategy, CSP/CC mechanics, congressional trade analysis
+`~/projects/.skills-db/stock-trading-advisor.skill` — wheel strategy, CSP/CC mechanics, congressional trade analysis
