@@ -434,6 +434,44 @@ instead of every poll (`feeds.blocked_source_retry_hours`).
 The lesson these share: **read what the error actually says.** A 429 is not always a rate limit, a
 403 can mean a site moved, and an empty result set at midnight is not the same as no opportunities.
 
+## Observability: the dashboards (v2.3.2, 2026-09-19)
+
+Until now, answering "is it healthy, and is it working?" meant reading journald and querying
+Postgres by hand — which is how the 09-14 weekly scan stayed missed for five days and how a
+90-day profit factor of **0.06** stayed a number nobody looked at.
+
+Two views, one producer. `execution/dashboard_export.py::build_state()` is the only thing that
+collects data; the web page and the terminal view just render its dict, so they cannot disagree.
+
+| | |
+|---|---|
+| **Web** | `execution/dashboard_serve.py` → `trading-dashboard.service` on :8765, its own unit (a dashboard crash can never touch `trading.service`). Live at **https://trading.cloudmagic.software** behind Cloudflare Access (owner-only, one-time PIN), connector on pve01; or `ssh -L 8765:127.0.0.1:8765 workstation`. |
+| **Terminal** | `python execution/dashboard_tui.py` — `rich`, over ssh, calls `build_state()` directly so it still works when the service is down. `--once` pipes into a report; `--from-file` costs no API calls. |
+
+**Read-only by contract.** The broker is reached through a GET-only wrapper (a test asserts no
+order method is reachable); nothing writes engine state. The only files written are the snapshot
+and its cache.
+
+### What it shows that the logs didn't
+- **Profit factor, expectancy and win rate side by side** (90-day, from `decision_logic`). Win
+  rate alone flatters a short-put book; the three together do not.
+- **Net option premium MTD** from broker fills — sells *minus* buys, so a stop-loss week reads
+  negative instead of showing gross "premium collected".
+- **Module health against each task's real schedule** — weekday 08:30/09:00/10:00, Monday
+  pre-market, Friday 16:15, trading-day close from `/v2/calendar` — with a grace window, so a job
+  inside its own hour isn't "late". Feeds read `idle` when the market is closed (they only poll in
+  the open branch) and `blocked` when a source is behind a bot checkpoint.
+- **Every position's rule zone** read off the live mark: at target, roll zone, force-close, past
+  the stop — labelled as the dashboard's reading of `strategy_params.yaml`, not the manager's queue.
+- **Its own staleness**: if the snapshot is over 3 minutes old the page says so, rather than
+  showing old numbers as current.
+
+Multi-account: the engine trades one account; others can be *watched* (shown, never traded) via
+`ALPACA_ACCOUNTS`. Ledger stats show "—" for watched accounts — `decision_logic` has no account
+column, and the page never blends them.
+
+---
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
@@ -514,6 +552,8 @@ trading/
 ├── config/
 │   ├── settings.py              # Centralized config loader
 │   └── strategy_params.yaml     # All tunable parameters
+├── dashboard/
+│   └── index.html               # Read-only web dashboard (polls logs/dashboard/state.json)
 ├── directives/                  # SOPs — living documents
 │   ├── all-weather-strategy-prompt.md  # Master prompt — apply in any AI session
 │   ├── strategy_framework.md    # 10-strategy framework + lessons cadence
@@ -571,7 +611,11 @@ cp .env.example .env
 #          ANTHROPIC_API_KEY (for strategy advisor),
 #          SLACK_WEBHOOK_URL (Incoming Webhook → #agentic-ops-alerts)
 
-# 3. Configure strategy
+# 3. Watch it run (read-only, safe on the live host)
+python execution/dashboard_tui.py            # terminal dashboard
+python execution/dashboard_serve.py          # web dashboard on 127.0.0.1:8765
+
+# 4. Configure strategy
 # Edit config/strategy_params.yaml — tickers, thresholds, politician watchlist
 
 # 4. Verify all connectivity
