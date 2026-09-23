@@ -54,6 +54,12 @@
 
 ## Learnings & Annealings
 
+- **2026-09-23**: **FJET — evaluate partial liquidation:** With 309 shares of FJET available (not locked by the option writing), consider selling some or all of the 309 available shares at open to (a) partially reduce cost basis drag and (b) generate cash. At $1.87 this is ~$578 — minimal but directionally correct. Do NOT add. Set a hard rule: if FJET < $1.70, execute market sell on all available qty.
+
+- **2026-09-22**: **FJET — evaluate forced liquidation:** Check whether the 4,261 locked shares can be freed. If qty_available remains ~309, begin scaling out the available shares at market open. At $1.95, holding for recovery is not a viable passive strategy — each day of holding is capital immobilized. Set a decision threshold: if FJET < $1.80 at open, begin liquidating all available shares regardless.
+
+- **2026-09-21**: **Monitor GEO short put closely at open.** `GEO261016P00029000` short 4x $29P, premium at $1.05. If GEO underlying opens below $29.50, evaluate buying to close at a loss (~$20 unrealized + any further move) rather than risking assignment. Max loss on assignment: 400 shares × $29 = $11,600 obligation. Closing now costs ~$420. Decide before 10:00 AM.
+
 - **2026-09-18**: **FJET exit evaluation — PRIORITY ONE:** With 309 shares available to sell, execute a partial liquidation at open to begin reducing cost basis drag. Even selling 309 shares at $1.71 recovers ~$529 and incrementally reduces the unrealized loss denominator. Check whether the remaining 4,261 shares are locked by a position constraint or system rule — if locked by no mechanism, escalate to full exit. *This is the only path to unlocking the wheel.*
 
 - **2026-09-17**: **FJET triage is the priority.** With 309 shares available (vs. 4,570 held), determine what is locking the remaining 4,261 shares. If it is a CSP assignment or margin hold, identify the obligation. If shares can be freed, evaluate a staged exit — even at $1.85 crystallizing the loss unlocks the wheel and restores income capacity. **The unrealized loss is already -$17,605; holding further requires a thesis, not inertia.**
