@@ -78,6 +78,43 @@ class WheelStrategy:
         self._open_short_calls: Dict[str, float] = {}
         self._cost_basis: Dict[str, float] = {}
         self._spot: Dict[str, float] = {}
+        # Macro-event overlay (execution/event_odds.py). Inert until the loop injects a
+        # snapshot via set_event_odds() — deliberately NOT read from settings, so a
+        # wheel built from a MagicMock config (tests, --dry) can't switch it on.
+        self._event_snapshot: Optional[dict] = None
+        self._event_mode: str = "shadow"
+        self._event_max_age: float = 6.0
+
+    def set_event_odds(self, snapshot: Optional[dict], mode: str = "shadow",
+                       max_age_hours: float = 6.0) -> None:
+        self._event_snapshot = snapshot
+        self._event_mode = mode
+        self._event_max_age = max_age_hours
+
+    def _event_gate(self) -> tuple:
+        """(block, shadow_reason) for this cycle's shared expiry.
+
+        block=True only in enforce mode. In shadow mode a would-be block comes back as
+        shadow_reason so run_cycle can record which CSPs it let through anyway — the
+        evidence for deciding whether to enforce.
+        """
+        if self._event_snapshot is None:
+            return False, ""
+        from execution.event_odds import verdict
+        ok, reason, _ = verdict(self._event_snapshot, date.fromisoformat(self.target_expiry()),
+                                max_age_hours=self._event_max_age)
+        if ok:
+            if reason:   # overlay blind (no/stale snapshot) — say so, then proceed
+                self._skip("_book", "event_inactive", f"[EVENT] {reason}")
+            return False, ""
+        if self._event_mode == "enforce":
+            self._skip("_book", "event_risk", f"[EVENT] no new CSPs — {reason}",
+                       metadata={"reason_detail": reason}, journal=True)
+            return True, ""
+        self._skip("_book", "event_risk_shadow",
+                   f"[EVENT] shadow: enforce mode would block new CSPs — {reason}",
+                   metadata={"reason_detail": reason}, journal=True)
+        return False, reason
 
     # ------------------------------------------------------------------
     # Helpers
@@ -775,6 +812,12 @@ class WheelStrategy:
                        metadata={"reason_detail": reason}, journal=True)
             return 0
 
+        # Macro-event overlay — like book health, a property of the cycle (every
+        # candidate shares target_expiry()), not of any one ticker.
+        event_block, shadow_reason = self._event_gate()
+        if event_block:
+            return 0
+
         candidates = [t for t in universe
                       if t not in self._quarantined and self._positions[t].stage == 0]
         self._report_untradeable_universe()
@@ -791,9 +834,20 @@ class WheelStrategy:
             ranked = [(t, None, 0.0) for t in candidates]
 
         placed = 0
+        opened: List[str] = []
         for ticker, ivr, _sort_key in ranked:
             if self.open_csp(ticker, ivr=ivr) is not None:
                 placed += 1
+                opened.append(ticker)
+
+        if shadow_reason and opened:
+            # Every one of these is a trade enforce mode would have skipped. Journaled
+            # per order (not cooldown-gated) so the shadow period can be scored exactly.
+            log_insight(source="event_odds", category="decision",
+                        insight=f"[EVENT] shadow: opened CSP(s) {', '.join(opened)} that "
+                                f"enforce mode would have blocked — {shadow_reason}",
+                        metadata={"tickers": opened, "expiry": self.target_expiry(),
+                                  "reason_detail": shadow_reason, "shadow": True})
 
         # Covered calls on shares we already hold. open_cc() was previously reachable
         # ONLY from handle_assignment(), so a holding that arrived any other way (an

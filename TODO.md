@@ -755,3 +755,45 @@ green on both hosts; `mypy execution/ config/` clean. Dashboard: https://trading
 - [ ] ainews/kanban have no Access app; kanban runs `DISABLE_AUTH=true`. Deliberate?
 - [ ] `strategy_analysis` still has 0 rows; the second uncorrelated engine is still unbuilt
       (see the 08-21 sections — both predate today and neither moved).
+
+## 2026-09-29 — ten "automate your trading" repos, and what came out of them
+
+A social post listed ten Polymarket/Kalshi repos ("118 strategies", "1B-trade dataset",
+"Claude trading terminal"). Each got a SkillSpector scan + a source read before anything touched
+this repo. SkillSpector put 9/10 at DO_NOT_INSTALL; nearly every finding was a false positive (an
+app sending its own API key to its own API — it's built for skills, not applications). The real
+findings came from reading the code:
+
+- **REJECT `recogardtech/AutoPilotPM`.** Byte-identical rebrand of `alsk1992/CloddsBot` (2.9k★)
+  after normalizing names; account one month old, repo one day old, copyright line swapped (an MIT
+  violation). The only functional change: the installer moved from upstream's npm package to a
+  GitHub *release tarball* on the rebrand account — which did not exist yet. Clean source to pass
+  review, unreviewed artifact to install. That's the lure shape to recognize next time.
+- **REJECT `HarrierOnChain/…-Toolkits`.** 9/10 "bots" are stubs; binary-first install;
+  Telegram/WhatsApp funnel; signs with Polymarket V1 contracts retired 2026-04-28.
+- CAUTION: lp_tool (clean; its `readme_ip.md` is a geoblock-bypass proxy), polybot (V1 signing,
+  unauthenticated executor on 0.0.0.0), polymarket-mcp-server (`confirm` is a model-set parameter,
+  not a human gate; installer writes the raw wallet key into Claude's config), PolyWeather,
+  Polymarket_data ("1.1B" counts derived tables; ~293M fills), the awesome list.
+- APPROVE: pydantic-ai (from PyPI), prediction-market-backtesting (backtest only).
+
+**None of it was integrated as code.** What was built instead is the one idea that fits a
+short-put book with no new venue, key or wallet:
+
+**`execution/event_odds.py` — Kalshi macro-event overlay, SHADOW mode.** Reads public Kalshi
+market data (no auth). `window` events (FOMC) block a CSP whose expiry spans a *contested*
+decision (1 − P(modal) ≥ 0.30); `level` events (NBER recession) block all new CSPs while
+P(yes) ≥ 0.40. Wired into `WheelStrategy.run_cycle()` next to the book-health gate, polled on its
+own persisted cooldown (`_feed_polls["event_odds"]`), journals ≥10-pt daily repricings, dashboard
+row "event odds". Fails OPEN on no/stale data — an overlay, unlike the IV gate.
+Dry-run against live data 2026-09-29: Oct 28 FOMC hold 55% / hike 44% (hold was 30% the prior
+day) → 10/16 and 10/23 expiries clear, 10/30+ would block. 5 of the next 6 FOMCs price contested,
+but a 2-week expiry only spans the next one: expect the gate active ~2 weeks in 6.
+
+- [ ] **~2026-10-14** — first cycles where the target expiry spans Oct 28. Confirm the journal
+      shows `[EVENT] shadow: enforce mode would block…` and, for each CSP opened anyway, an
+      `event_odds` decision entry naming the tickers.
+- [ ] **After 2026-10-30 expiry** — score the shadow period: P&L of the CSPs enforce mode would
+      have skipped vs the rest. Flip `event_odds.mode: enforce` only on that evidence.
+- [ ] CPI/payrolls deliberately not watched (strike ladders, monthly — would gate every other
+      expiry). Revisit only if the FOMC gate earns its keep.

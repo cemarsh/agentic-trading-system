@@ -324,6 +324,47 @@ regime:
   bear_spy_threshold: -2.0       # SPY intraday % → BEAR (half allocation, wider delta)
   extreme_spy_threshold: -4.0    # SPY intraday % → EXTREME_BEAR (no new entries)
 
+# ============================================================
+# MACRO EVENT ODDS (2026-09-29) — prediction-market prices as an entry overlay.
+#
+# Every trade this book makes is a short put, and a 2-week short put that spans a
+# contested FOMC decision is a binary macro bet — the same reason the earnings gate
+# refuses a CSP spanning earnings. Kalshi prices these events continuously and its
+# market data is public: no account, no key, no wallet. READ-ONLY; nothing here
+# trades on a prediction market. (Polymarket was considered and not used: its main
+# exchange is geoblocked for US persons, and Kalshi lists the same macro events
+# under CFTC regulation. The ten "Polymarket bot" repos reviewed the same day were
+# not used as code either — see the 2026-09-29 TODO section.)
+#
+# On 2026-09-29 the Oct 28 FOMC priced hold 55% / hike 25bp 44%, up from hold 30%
+# the prior day — a coin flip on a rate hike sitting two weeks past the current
+# expiry. From ~Oct 14 the 2-week expiry lands after it, and this gate would fire.
+#
+# SHADOW FIRST. mode: shadow journals "would block" and changes nothing, so the
+# gate can be judged against what those skipped CSPs would actually have done
+# before it is allowed to cost a trade. Flip to enforce only on that evidence.
+# Fails OPEN (no/stale snapshot = no verdict) — this is an overlay, not a core
+# input like the IV gate.
+#
+# Not watched, deliberately: CPI / payrolls. Kalshi lists them as strike ladders
+# ("CPI above 0.3%?"), which have no single "surprise" probability to threshold,
+# and they print monthly — gating on them would block roughly every other expiry.
+# ============================================================
+event_odds:
+  enabled: true
+  mode: shadow                   # shadow | enforce
+  poll_minutes: 30               # these reprice over hours, not seconds
+  max_age_hours: 6               # snapshot older than this = overlay inactive (fails open)
+  journal_move_pts: 0.10         # journal an outcome that moved >= 10 pts vs Kalshi's prior-day price
+  watch:
+    # window: blocks a CSP whose expiry is on/after the event, when
+    #         1 - P(most likely outcome) >= threshold. 0.30 = the modal outcome is
+    #         below 70%; a routinely-priced FOMC sits at 85-95%.
+    - {name: "FOMC decision", series: "KXFEDDECISION", kind: window, threshold: 0.30}
+    # level: blocks every new CSP while P(yes) >= threshold, on any open event in
+    #        the series (2026 and 2027 both listed; 6% and 23% on 2026-09-29).
+    - {name: "US recession (NBER)", series: "KXRECSSNBER", kind: level, threshold: 0.40}
+
 hedge:
   enabled: true
   tickers:

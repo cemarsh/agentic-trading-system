@@ -65,6 +65,17 @@ class FeedsConfig:
 
 
 @dataclass
+class EventOddsConfig:
+    """Prediction-market macro-event overlay — see execution/event_odds.py."""
+    enabled: bool = False
+    mode: str = "shadow"               # "shadow" = journal what it would block; "enforce" = block new CSPs
+    poll_minutes: int = 30
+    max_age_hours: float = 6.0         # older snapshot = overlay inactive (fails open)
+    journal_move_pts: float = 0.10     # journal an outcome whose odds moved this much vs prior day
+    watch: List[dict] = field(default_factory=list)
+
+
+@dataclass
 class WhaleWatchConfig:
     source_url: str
     politician_names: List[str]
@@ -213,6 +224,7 @@ class Settings:
     universe: Optional[UniverseConfig] = None
     live_gates: Optional[LiveGatesConfig] = None
     feeds: Optional[FeedsConfig] = None
+    event_odds: Optional[EventOddsConfig] = None
 
 
 def load() -> Settings:
@@ -273,6 +285,10 @@ def load() -> Settings:
         universe=UniverseConfig(**{
             k: v for k, v in (raw.get("universe") or {}).items()
             if k in UniverseConfig.__dataclass_fields__
+        }),
+        event_odds=EventOddsConfig(**{
+            k: v for k, v in (raw.get("event_odds") or {}).items()
+            if k in EventOddsConfig.__dataclass_fields__
         }),
         live_gates=LiveGatesConfig(**{
             k: v for k, v in (raw.get("live_gates") or {}).items()

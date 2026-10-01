@@ -563,6 +563,19 @@ def build_modules(state: dict, settings, now: datetime, market_open: Optional[bo
     mods.append(whale)
     mods.append(_interval_module("policy feed", "last poll attempt", _iso(polls.get("policy")),
                                  policy_iv, policy_iv * 4, now, True, market_open))
+    eo_cfg = getattr(settings, "event_odds", None)
+    if eo_cfg is not None and getattr(eo_cfg, "enabled", False) is True:
+        eo_iv = int((getattr(eo_cfg, "poll_minutes", 30) or 30) * 60)
+        eo = _interval_module("event odds", f"Kalshi macro odds ({getattr(eo_cfg, 'mode', 'shadow')})",
+                              _iso(polls.get("event_odds")), eo_iv, eo_iv * 4, now, True,
+                              market_open)
+        snap = state.get("event_odds") or {}
+        flagged = [e for e in snap.get("events", [])
+                   if e.get("risk") is not None and e["risk"] >= e.get("threshold", 1.0)]
+        if flagged:
+            eo["note"] += " — above threshold: " + ", ".join(
+                f"{e['event_ticker']} {e['risk']:.0%}" for e in flagged)
+        mods.append(eo)
 
     mods += [
         _scheduled_module("ipo scan", "weekdays 08:30 ET", "last_ipo_scan", state, now_et,

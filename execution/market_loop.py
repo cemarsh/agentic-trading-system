@@ -33,7 +33,8 @@ from execution.inverse_etf_hedge import InverseETFHedge
 from execution.strategy_advisor import run_weekly_scan, generate_digest
 from execution.daily_journal import log_insight, wrap_up as journal_wrap_up
 from execution.dynamic_universe import promote as promote_candidates
-from execution.guards import Cooldown, has_acted, mark_acted
+from execution.guards import Cooldown, acted_once, has_acted, mark_acted
+from execution.event_odds import EventOdds, big_moves
 from execution.weekly_journal import weekly_wrapup
 from execution.position_manager import PositionManager
 from execution.morning_briefing import MorningBriefing
@@ -738,6 +739,7 @@ def run(mode: str):
     policy = PolicyMonitor(settings=cfg, notifier=notifier, db=db)
     regime = RegimeDetector(settings=cfg, alpaca_client=alpaca)
     hedge = InverseETFHedge(settings=cfg, alpaca_client=alpaca, db_logger=db)
+    event_odds = EventOdds(settings=cfg)
 
     # Send any halt alert that was queued when the network was down at halt time
     _flush_pending_halt_alert(notifier)
@@ -756,7 +758,10 @@ def run(mode: str):
                          store=_feed_store)
     _policy_cd = Cooldown((getattr(_feed_cfg, "policy_poll_minutes", 15) or 15) * 60,
                           store=_feed_store)
-    _feed_cds = {"whale": _whale_cd, "policy": _policy_cd}
+    _event_cfg = getattr(cfg, "event_odds", None)
+    _event_cd = Cooldown((getattr(_event_cfg, "poll_minutes", 30) or 30) * 60,
+                         store=_feed_store)
+    _feed_cds = {"whale": _whale_cd, "policy": _policy_cd, "event_odds": _event_cd}
 
     class _FeedGate:
         """feed_cd.ready('whale') → that source's own interval, persisted."""
@@ -1032,6 +1037,36 @@ def run(mode: str):
                             category="error",
                             insight=f"policy scan error: {pe}",
                         )
+
+            # --- Macro event odds (Kalshi public market data; read-only overlay) ---
+            if event_odds.enabled:
+                if feed_cd.ready("event_odds"):
+                    try:
+                        snap = event_odds.fetch()
+                        if snap["events"]:
+                            state["event_odds"] = snap
+                            save_state(state)
+                        if snap["errors"] and feed_err_cd.ready("event_odds"):
+                            print(f"[EVENT] fetch errors: {snap['errors']}")
+                        move_pts = getattr(_event_cfg, "journal_move_pts", 0.10) or 0.10
+                        for mv in big_moves(snap, move_pts):
+                            # Once per outcome per day: Kalshi's "previous" price is the
+                            # prior day's, so the same move reads true all session.
+                            day_key = f"{mv['ticker']}:{datetime.now(MARKET_TZ).date().isoformat()}"
+                            if not acted_once(state, "event_odds_moves", day_key):
+                                continue
+                            save_state(state)
+                            msg = (f"[EVENT] {mv['event']} ({(mv['resolves_at'] or '')[:10]}): "
+                                   f"{mv['outcome']} {mv['from']:.0%} -> {mv['to']:.0%} vs prior day")
+                            print(msg)
+                            log_insight(source="event_odds", category="signal",
+                                        insight=msg, metadata=mv)
+                    except Exception as eoe:
+                        if feed_err_cd.ready("event_odds"):
+                            print(f"[EVENT] odds fetch error: {eoe}")
+                wheel.set_event_odds(state.get("event_odds"),
+                                     mode=getattr(_event_cfg, "mode", "shadow") or "shadow",
+                                     max_age_hours=getattr(_event_cfg, "max_age_hours", 6.0) or 6.0)
 
             # --- Wheel Strategy ---
             wheel_tickers_scanned = len(cfg.wheel.tickers)
