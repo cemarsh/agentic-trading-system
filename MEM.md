@@ -54,6 +54,16 @@
 
 ## Learnings & Annealings
 
+- **2026-09-30**: **FJET — prioritize exit assessment:** Determine why 4,261 shares are unavailable. If lockup/collateral resolves, evaluate selling shares in tranches to reduce cost basis exposure. At $1.82, cutting position in half recovers ~$4,158 in capital and reduces book-loss % toward the 15% threshold. *Do not wait for recovery — avg entry $5.70 vs. current $1.82 makes mean-reversion a low-probability bet.*
+
+- **2026-09-29**: **FJET position review is urgent (not optional):** Model the break-even unlock price (~$3.30 for 15% threshold). Determine if a partial exit of the 309 available shares at $1.865 to crystallize loss and reset unrealized PnL math is preferable to indefinite lockout. *This is a manual override decision — flag for trader review at open.*
+
+- **2026-09-28**: **Priority 1 — FJET position review**: Evaluate whether to cut FJET at market open. At $1.84 with avg cost $5.70, holding is generating opportunity cost across the entire Wheel strategy. Model the break-even equity threshold: to drop book loss below 15% of equity, FJET market value must recover to ~$22,100 (from $8,409 today) — requiring price ~$4.84, a 163% move. **This is not a recovery thesis; this is a sunk cost trap.** Flag for discretionary override to reduce or close.
+
+- **2026-09-25**: **FJET covered call audit (URGENT):** Investigate why only 309 of 4,570 shares are `qty_available`. If no options are actually written, this is a data/broker hold issue that must be resolved before any covered call strategy can be executed. Check Alpaca position holds directly.
+
+- **2026-09-24**: **KTOS261024P00052000 — Manual verification required before open:** Confirm whether this position is still open. If open, place a market BTC order at open regardless of fill quality. Do not allow a -852% position to continue unmonitored. Check broker order blotter directly.
+
 - **2026-09-23**: **FJET — evaluate partial liquidation:** With 309 shares of FJET available (not locked by the option writing), consider selling some or all of the 309 available shares at open to (a) partially reduce cost basis drag and (b) generate cash. At $1.87 this is ~$578 — minimal but directionally correct. Do NOT add. Set a hard rule: if FJET < $1.70, execute market sell on all available qty.
 
 - **2026-09-22**: **FJET — evaluate forced liquidation:** Check whether the 4,261 locked shares can be freed. If qty_available remains ~309, begin scaling out the available shares at market open. At $1.95, holding for recovery is not a viable passive strategy — each day of holding is capital immobilized. Set a decision threshold: if FJET < $1.80 at open, begin liquidating all available shares regardless.
