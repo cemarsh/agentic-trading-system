@@ -472,6 +472,47 @@ column, and the page never blends them.
 
 ---
 
+## Macro-Event Odds & an Exit That Wasn't (v2.3.3, 2026-10-01)
+
+### Prediction-market prices as an entry overlay (`execution/event_odds.py`)
+
+Every trade this book makes is a short put, and a two-week short put that spans a *contested*
+FOMC decision is a binary macro bet — the same reason the earnings gate refuses a CSP that spans
+earnings. Kalshi prices those events continuously and its market data is public: no account, no
+key, no wallet. Nothing here trades on a prediction market.
+
+| Event | Kind | Fires when |
+|---|---|---|
+| FOMC decision (`KXFEDDECISION`) | window | the CSP's expiry is on/after the meeting **and** 1 − P(most likely outcome) ≥ 0.30 |
+| US recession, NBER (`KXRECSSNBER`) | level | P(yes) ≥ 0.40 — blocks every new CSP |
+
+It ships in **shadow mode**: it journals what enforce mode *would* have blocked, and names every
+CSP opened anyway, so the gate is scored on real outcomes before it is allowed to cost a trade.
+It fails **open** on missing or stale data (an overlay, unlike the fail-closed IV gate), polls on
+its own persisted 30-minute cooldown, journals any outcome that reprices ≥10 points in a day, and
+has a row on the dashboard. CPI and payrolls are deliberately not watched: they are strike
+ladders with no single "surprise" probability, and gating on them would block every other expiry.
+
+It came out of vetting ten "automate your Polymarket trading" repos. None were used as code — one
+was a byte-identical rebrand of a popular project whose only functional change pointed the
+installer at an unreviewed release tarball.
+
+### One exempted loser idled the whole wheel for a month
+
+The book-loss gate (`wheel.max_book_loss_pct: 15`) refuses new CSPs while total unrealized loss
+exceeds 15% of equity. From 09-01 it fired every cycle — and FJET, an IPO starter exempted from
+the −25% per-name floor under a "hold for breakeven" plan, was essentially the whole loss. **No
+new CSPs were sold in September**, and nothing alerted, because a gate doing its job only logs.
+The daily journal meanwhile spent six days asking why 4,261 FJET shares were "locked" — they were
+held by our own resting GTC breakeven sell.
+
+The plan was ended on 10-01: the GTC was cancelled, 90% of the position sold, and the hourly
+`breakeven_monitor` that re-armed the order retired. The lesson is in the config comments: an
+exemption from a per-name floor is not an exemption from the book-wide gate, so a held loser
+quietly costs the entire strategy its throughput.
+
+---
+
 ## The Roadmap: Where This Is Going
 
 ### Phase 2 — Multi-Source Intelligence Fusion (Q2 2026)
@@ -570,6 +611,7 @@ trading/
 │   ├── regime_detector.py       # SPY intraday regime (BULL/NEUTRAL/BEAR/EXTREME_BEAR)
 │   ├── inverse_etf_hedge.py     # Auto-buy/sell SQQQ based on regime
 │   ├── policy_monitor.py        # Policy intelligence scanner (L1–L4)
+│   ├── event_odds.py            # Kalshi macro-event overlay (FOMC/recession), shadow mode
 │   ├── hardware_monitor.py      # CPU/temp threshold enforcement
 │   ├── notifier.py              # Resend email + Slack #agentic-ops-alerts
 │   ├── db_logger.py             # PostgreSQL — decision_logic, strategy_analysis, strategy_lessons
