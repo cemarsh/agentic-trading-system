@@ -797,3 +797,35 @@ but a 2-week expiry only spans the next one: expect the gate active ~2 weeks in 
       have skipped vs the rest. Flip `event_odds.mode: enforce` only on that evidence.
 - [ ] CPI/payrolls deliberately not watched (strike ladders, monthly — would gate every other
       expiry). Revisit only if the FOMC gate earns its keep.
+
+## 2026-10-01 — FJET: breakeven plan ended, 90% sold at a loss
+
+The 08-21 plan (hold FJET for the $5.71 breakeven GTC, write CCs on the 309 free shares) was
+reviewed and ended. FJET closed September at $1.83: lower every month since May, a −22% day on
+09-09 at ~19× volume, a widening Q2 loss, and 5.2M resale-registered shares overhanging it.
+Breakeven needed +212%.
+
+What it was actually costing was more than its own loss. The book-loss gate
+(`wheel.max_book_loss_pct` 15) first fired 09-01 at 15.3% and fired every cycle after, reaching
+24.3% on 09-30 — and FJET was essentially the whole of it (−$17,697 of a $74.3k book). **No new
+CSPs were sold for the whole of September.** The wheel was idle behind one exempted IPO starter.
+
+Also found: six straight daily wrap-ups (09-22..09-30) asked "why are 4,261 shares locked /
+unavailable — check broker holds". They were locked by our own GTC breakeven sell. The journal
+sees `qty_available` but not open orders, so Claude invented a broker-hold mystery.
+
+Done:
+- Cancelled the 4,261 @ $5.71 GTC; sold 4,113 sh (90%) — limit $1.75 day, placed pre-open
+  (`client_order_id fjet-exit-90pct-2026-10-01`). Keeping 457 sh.
+- Retired `breakeven_monitor.py` + its timer (it would have re-armed a GTC on the remainder and
+  later emailed "no loss realized"). Disabled on VM 117 by hand; `deploy.sh` now removes the
+  units from any host that still has them.
+- `catastrophic_exempt` keeps FJET — with the reason rewritten — because the −25% floor would
+  otherwise sell the 457 remaining shares on the next cycle.
+
+- [ ] **2026-10-01 open** — confirm the 4,113 filled (limit $1.75; if FJET opens below it, it
+      won't fill — decide whether to lower it). Then confirm the book-loss gate clears and the
+      wheel sells its first CSP since 08-31.
+- [ ] Daily journal input: list open orders next to `qty_available`, so a resting order can't
+      be read as a broker hold again.
+- [ ] Q4 quarterly: revisit the 457-share FJET remainder (no exit rule by decision).

@@ -242,7 +242,7 @@ protection:
   ladder_drop_pct: 5.0           # Drawdown % from the last rung (or entry) to trigger the next ladder buy
   ladder_buy_shares: 10          # Shares per ladder buy
   max_ladder_rungs: 3            # Hard cap: at most this many ladder buys per ticker (prevents runaway)
-  no_auto_manage: ["FJET", "OPTX", "AADX"]  # IPO starters — no trailing stop / no ladder (manual breakeven exit)
+  no_auto_manage: ["FJET", "OPTX", "AADX"]  # IPO starters — no trailing stop / no ladder (FJET: see catastrophic_exempt)
   # --- Catastrophic backstop for equity longs (2026-08-21) -----------------
   # no_auto_manage was added on 2026-06-16 to stop the ladder averaging down into
   # FJET. It did that by dropping those tickers out of sync_positions entirely,
@@ -260,6 +260,12 @@ protection:
   # $5.71, and write covered calls against the 309 unlocked shares instead of realizing
   # -$8,420 today. This exemption is the reason the floor will not fire on it; anything
   # on this list must have a stated plan here, and comes OFF the list when that plan ends.
+  # FJET (decision 2026-10-01): the breakeven plan ENDED. At $1.83 it needed +212%, the
+  # loss had doubled to -$17,697, and that one name held the book-loss gate shut — no new
+  # CSPs from 09-01 on. Sold 90% (4,113 sh, limit $1.75); the GTC and breakeven-monitor
+  # are retired. The remaining 457 sh stay exempt ONLY because the floor would otherwise
+  # sell them on the next cycle — keeping them is the decision, not an oversight. Their
+  # plan: no exit rule, sized as a ~$800 starter; revisit at the Q4 quarterly report.
   catastrophic_exempt: ["FJET"]
 
 guardrails:

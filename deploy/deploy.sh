@@ -119,13 +119,21 @@ fi
 
 echo "==> Installing systemd units"
 for unit in trading.service trading-alert.service trading-heartbeat.service trading-heartbeat.timer \
-            breakeven-monitor.service breakeven-monitor.timer trading-dashboard.service; do
+            trading-dashboard.service; do
   sudo cp "deploy/$unit" "/etc/systemd/system/$unit"
   echo "    installed $unit"
 done
+# Retired 2026-10-01: breakeven-monitor re-armed a GTC sell of FJET @ cost basis ($5.71)
+# hourly. FJET was then cut 90% at a loss by decision, and the monitor would have re-placed
+# the order on the remainder (and later emailed "no loss realized"). Remove it from hosts
+# that still have it; idempotent.
+if [ -e /etc/systemd/system/breakeven-monitor.timer ] || [ -e /etc/systemd/system/breakeven-monitor.service ]; then
+  sudo systemctl disable --now breakeven-monitor.timer 2>/dev/null || true
+  sudo rm -f /etc/systemd/system/breakeven-monitor.timer /etc/systemd/system/breakeven-monitor.service
+  echo "    removed retired breakeven-monitor units"
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable --now trading-heartbeat.timer
-sudo systemctl enable --now breakeven-monitor.timer
 sudo systemctl reset-failed trading || true
 sudo systemctl restart trading
 # Read-only dashboard beside the loop; restarted so it serves the page just pulled.
