@@ -2,7 +2,7 @@
   "version": "1.0",
   "name": "trading",
   "shuri_id": "13abc991-389a-468c-a82a-57ef960f10e9",
-  "last_synced": "2026-08-18T00:00:00.000Z",
+  "last_synced": "2026-10-06T03:08:19.000Z",
   "category": "internal_product",
   "status": "active",
   "description": "**Version**: 1.5.0",
@@ -18,7 +18,13 @@
   "thinkpad_path": "/home/aiworker/projects/trading",
   "dev_port": null,
   "notes": "",
-  "urls": [],
+  "urls": [
+    {
+      "label": "Trading (Access)",
+      "url": "https://trading.cloudmagic.software/",
+      "type": "internal"
+    }
+  ],
   "env_keys": [
     "ALERT_EMAIL",
     "ALPACA_BASE_URL",
@@ -39,5 +45,6 @@
     "SUPABASE_URL",
     "WEBHOOK_SECRET"
   ],
-  "secrets_status": "partial"
+  "secrets_status": "partial",
+  "shuri_org_id": "6abee47f-3aee-4148-9a15-0c97e7ad8572"
 }
