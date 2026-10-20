@@ -882,9 +882,9 @@ private). The Anthropic key went 401 the next day (10-05), presumably the same s
 - 22 new tests (287 total), `mypy execution/ config/` clean.
 
 **Still open:**
-- [ ] **Waiting on Chris:** new `ANTHROPIC_API_KEY` in both `.env` files (ClickUp task has the
-      steps). Until then: no journal synthesis, advisor, or morning briefing. The dashboard shows
-      `anthropic key: invalid` and Slack got the alert at deploy time.
+- [x] **ANTHROPIC_API_KEY rotated 2026-10-20 15:07 PT** — new key in both `.env` files, service
+      restarted, startup log `[CREDS] resend ok · anthropic ok`, `credential_health.py` green on
+      both hosts. Journal synthesis / advisor / briefing resume tonight.
 - [ ] Daily journals 10-08 → 10-19 were never written (the email raise happened before the
       file write? — no: `[JOURNAL] wrote 2026-10-07.md` repeated nightly because
       `last_daily_report` never advanced). Decide whether to backfill from
