@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 2.3.1  
-**Last Updated**: 2026-09-18  
+**Version**: 2.3.4  
+**Last Updated**: 2026-10-20  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · Home Workstation · Alpaca Markets
 
@@ -512,6 +512,33 @@ exemption from a per-name floor is not an exemption from the book-wide gate, so 
 quietly costs the entire strategy its throughput.
 
 ---
+
+## Credential Health & Crash-Loop Alerting (v2.3.4, 2026-10-20)
+
+On 2026-10-04 every Resend API key on the account was revoked during an incident response
+(a leaked key had been used for spam). The Anthropic key died the next day. The loop kept
+trading, but for 16 days every email raised, each raise halted the loop, and systemd
+respawned it ~300 times a day — with no alert, because the alert *was* the email. v2.3.4
+makes a dead key an event the system reports the same day, from a channel that doesn't
+depend on the key:
+
+- **Email can't halt trading.** `Notifier.send()` returns `False` instead of raising,
+  records `logs/notifier_degraded.json`, and posts to Slack once a day until a send
+  succeeds. `critical_alert()` goes to Slack *first*.
+- **`execution/credential_health.py`** probes the Resend and Anthropic keys at startup and
+  every 6 hours (`python execution/credential_health.py` runs it by hand). Verdicts show on
+  the dashboard as `email delivery`, `resend key`, `anthropic key`; a key that turns
+  invalid posts to Slack. Only the provider's own JSON verdict counts — a WAF block or a
+  5xx is "unknown", never an alarm.
+- **Self-healing has a cap.** A halt that recovers three times in an hour stays halted on
+  the fourth, so systemd's start limit trips and `OnFailure=` fires.
+- **The deadman watches `NRestarts`.** A loop that dies every 75 seconds keeps its
+  heartbeat fresh; the counter climbing ≥3 between two 5-minute ticks is now a critical
+  alert, market open or not.
+- `trading.service` `StartLimitIntervalSec` is 900 — five ~75s restart cycles never fit
+  the old 300s window.
+
+Keys live only in `.env` (Dell and VM 117 — two files, update both). Never in a `.md`.
 
 ## The Roadmap: Where This Is Going
 

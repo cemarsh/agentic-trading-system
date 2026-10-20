@@ -829,3 +829,68 @@ Done:
 - [ ] Daily journal input: list open orders next to `qty_available`, so a resting order can't
       be read as a broker hold again.
 - [ ] Q4 quarterly: revisit the 457-share FJET remainder (no exit rule by decision).
+
+## 2026-10-20 — 16 days of a dead Resend key: ~300 restarts a day, zero alerts
+
+"We aren't running?" — `trading.service` was `activating (auto-restart)`, NRestarts=45 that
+morning. The journal said `[ERROR] API key is invalid` three times a minute, then
+`[HALT] Critical failure threshold reached`, then a restart. It had been doing that since
+**2026-10-05**: 172–304 starts and ~1,200 `API key is invalid` lines per day.
+
+**Cause.** On 2026-10-03 23:57–23:59 UTC a leaked Resend key sent ~150 spam emails from
+`board@cloudmagicgroup.com` (faker-style one-word subjects, random Gmail recipients, half
+suppressed). At 00:02 UTC 10-04 an incident-response run (`cmtg-ir/1.0`, `triage-ro/1.0`)
+enumerated the account and deleted all three API keys. The trading system's key was one of
+them — the same key was also sitting in plain text in `hermes/CLAUDE.md` (cmtg-workspace,
+private). The Anthropic key went 401 the next day (10-05), presumably the same sweep. Neither
+`.env` (Dell or VM 117) was updated.
+
+**Why nobody knew, layer by layer:**
+- `Notifier.send()` raised. The status report at 09:30 ET raised inside the main loop, counted
+  as an API failure, and three of them halted the loop. At night the daily report / journal
+  email did the same. The loop traded fine between restarts — CSPs were still being sold — so
+  the broker side looked healthy.
+- The halt alert was an email. `critical_alert()` sent the email *before* Slack, so the raise
+  skipped the Slack line. Zero `[SLACK]` lines in 16 days.
+- `_attempt_halt_recovery` probes Alpaca only, which was fine, so it cleared the halt on every
+  restart. `halt_reason` was `api`, not `auth` (the auth classifier only knows `requests`
+  HTTPErrors; Resend raises its own type).
+- `StartLimitBurst=5` in `StartLimitIntervalSec=300` never tripped: 3 in-process retries
+  (~45s) + `RestartSec=30` makes a ~75s cycle, and five of those span ~300s. So `OnFailure=`
+  never fired either.
+- The heartbeat deadman saw a fresh heartbeat every ~75s and said OK.
+- Status emails stopped 10-07, daily journals stopped 10-07 (the Claude synthesis was also
+  401), and the dashboard had no row for any of it.
+
+**Fixed today (cd0a732, deployed to VM 117):**
+- New Resend key `trading-vm117` — sending-only, restricted to cloudmagicgroup.com — in both
+  `.env` files; service restarted 07:48 PT, first status email at 14:49 UTC. Old key scrubbed
+  from `hermes/CLAUDE.md`.
+- `notifier.send()` never raises: it returns False, persists `logs/notifier_degraded.json`,
+  posts to Slack once a day while failing and once on recovery. `critical_alert()` posts Slack
+  first and returns whether anything was delivered.
+- `execution/credential_health.py`: probes the Resend and Anthropic keys at startup and every
+  6h; verdicts live in `state["credential_health"]` → dashboard rows `email delivery`,
+  `resend key`, `anthropic key`; ok→invalid posts to Slack. Only the provider's JSON verdict
+  marks a key invalid — Cloudflare bans urllib's default User-Agent with an HTML 403 (error
+  1010), which must read as `unknown`, not `invalid`.
+- `_attempt_halt_recovery` keeps a one-hour ledger of recoveries; the 4th stays halted so the
+  start limit trips and `OnFailure=` shouts.
+- `heartbeat_check.py` reads `NRestarts` each tick; +3 in 5 min is a crash loop → critical
+  alert hourly, market open or not.
+- `trading.service` `StartLimitIntervalSec` 300 → 900.
+- 22 new tests (287 total), `mypy execution/ config/` clean.
+
+**Still open:**
+- [ ] **Waiting on Chris:** new `ANTHROPIC_API_KEY` in both `.env` files (ClickUp task has the
+      steps). Until then: no journal synthesis, advisor, or morning briefing. The dashboard shows
+      `anthropic key: invalid` and Slack got the alert at deploy time.
+- [ ] Daily journals 10-08 → 10-19 were never written (the email raise happened before the
+      file write? — no: `[JOURNAL] wrote 2026-10-07.md` repeated nightly because
+      `last_daily_report` never advanced). Decide whether to backfill from
+      `logs/insights/*.jsonl` or accept the gap.
+- [ ] The Resend account's `board@` sender: find which project used that address and confirm
+      its key was rotated too (list-api-keys showed zero keys on 10-20 — anything else that
+      emails through this account is also dead).
+- [ ] 2026-10-14 / 10-30 event-odds checks and the 10-01 FJET fill check (previous section)
+      were not done today; the journal has the `[EVENT]` lines, nobody has read them.
