@@ -54,6 +54,26 @@
 
 ## Learnings & Annealings
 
+- **2026-10-20**: **CLF CSP — confirm fill:** Verify order c3b0584b executed. If still "pending" at open, investigate broker routing; do not let it sit unfilled into another scan cycle without manual review.
+
+- **2026-10-19**: **CLF261106P00012000 — review for early close:** Position is at -32% unrealized and has 18 days to Nov 6 expiry. With earnings 2026-11-06 (day of expiry), assignment risk is elevated if CLF moves toward $12. *Action: set a mental stop or close if CLF261106P00012000 reaches $0.50 (cost doubles from entry); check CLF spot price at open.*
+
+- **2026-10-16**: **FJET (immediate):** Manually review exit rationale. At $1.00 vs. $5.50 entry the position has lost 82% and is non-marginable. If no fundamental catalyst exists to recover to above $2, consider closing to free $2,056 in realized loss (tax offset) and redeploy ~$457 in capital. Set a decision deadline: close or hold with explicit thesis by EOD 2026-10-17.
+
+- **2026-10-15**: **FJET:** Evaluate hard exit. At $1.00/share with no recovery catalyst visible and -82% unrealized, holding costs opportunity capital. Set a pre-market review: if FJET opens below $1.05, initiate market sell of all 457 shares to free $457 and remove the psychological/accounting drag. The tax/paper loss is already realized in P&L terms.
+
+- **2026-10-14**: **DAL261113P00074000 — monitor closely.** Current mark $2.17 vs. entry $1.55 (−40%). DAL is now the highest-risk active position after the rapid deterioration today. Check DAL price at open; if underlying continues below ~$77, consider whether the roll bought enough time or if a second roll / close is warranted. Roll threshold should be re-evaluated if mark approaches $2.50+ (loss exceeds 60%).
+
+- **2026-10-13**: **DAL P74 ($74 strike, exp 2026-11-13) — monitor aggressively:** Current mark $2.17 vs. entry $1.55 (-40%). With DAL having just moved enough to blow out the P76 to $20, the P74 is still live risk. If DAL continues lower and P74 mark approaches $3.88 (entry × 2.5 = -150% loss trigger per existing stop logic), prepare for another forced BTC. Review DAL price level at open; if DAL trades below ~$70 pre-market, flag for manual intervention.
+
+- **2026-10-12**: **CRITICAL — Audit DAL pending orders immediately at open (09:30):** Check Alpaca order book for all 4 order IDs (b133ac03, baf460aa, cade9082, c6ff124f). Cancel 3 duplicates if open; if any filled, assess whether holding short 4x DAL261030P00076000 is within risk tolerance. Do not open session without resolving this.
+
+- **2026-10-09**: **FJET — evaluate forced exit:** With FJET at $1.00 (down 82%), confirm whether any stop-loss or max-drawdown rule governs equity positions. If none exists, manually review: holding 457 shares of a $1 AMEX stock ties up $457 in near-zero-value capital and masks true available equity. *Action: check if position has a stop configured; if not, flag for liquidation review.*
+
+- **2026-10-08**: **Wheel loop deduplication (URGENT):** Implement per-ticker per-session caching of earnings-block decisions. Do not re-evaluate CLF/AA/BAC/DAL/T on every cycle until either (a) the ticker's earnings date changes or (b) a new expiry cycle opens post-Oct 23. This eliminates >95% of today's 1,500 log entries and reduces noise.
+
+- **2026-10-20**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
+
 - **2026-10-07**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
 
 - **2026-10-07**: (Claude synthesis unavailable — set ANTHROPIC_API_KEY for actionable forward-looking carryforward)
