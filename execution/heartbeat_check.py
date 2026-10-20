@@ -19,10 +19,12 @@ Always exits 0 — alerting is a side effect, not a failure of this check.
 import json
 import os
 import ssl
+import subprocess
 import sys
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -32,6 +34,11 @@ from execution.notifier import Notifier
 HEARTBEAT_PATH = Path("logs/heartbeat")
 ALERT_STATE = Path("logs/heartbeat_alert.json")  # de-dupe so we alert at most once/hour
 STALE_SECONDS = 15 * 60
+# Crash-loop detector. A loop that dies and respawns every ~75s keeps its heartbeat
+# fresh, so staleness never fires; systemd's NRestarts climbing between two ticks is
+# the signal (2026-10-04..20: ~300 restarts/day, heartbeat always "OK").
+RESTART_STATE = Path("logs/heartbeat_restarts.json")
+RESTART_STORM = 3  # restarts between two 5-min ticks
 
 
 def push_splunk_heartbeat(status: str, age_seconds, market_open: bool) -> None:
@@ -82,6 +89,65 @@ def deadman_cancel_orders(cfg) -> str:
         return f"Dead-man switch FAILED to cancel open orders: {e} — check the account manually."
 
 
+def service_restarts() -> Optional[int]:
+    """systemd's restart counter for trading.service (resets on a manual restart)."""
+    try:
+        out = subprocess.run(
+            ["systemctl", "show", "trading", "-p", "NRestarts", "--value"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        return int(out)
+    except Exception:
+        return None
+
+
+def restart_storm(previous: Optional[int], current: Optional[int],
+                  threshold: int = RESTART_STORM) -> bool:
+    """True when the counter climbed by `threshold` or more since the last tick."""
+    return previous is not None and current is not None and current - previous >= threshold
+
+
+def check_restart_storm(cfg, now: datetime) -> None:
+    """Alert (at most hourly) when trading.service is crash-looping — market open or
+    not: the nightly report path can loop just as well as the open one."""
+    current = service_restarts()
+    previous = last_alert = None
+    try:
+        saved = json.load(open(RESTART_STATE))
+        previous, last_alert = saved.get("count"), saved.get("last_alert")
+    except Exception:
+        pass
+
+    if previous is not None and current is not None and restart_storm(previous, current):
+        recent = last_alert and (now - datetime.fromisoformat(last_alert)).total_seconds() < 3600
+        if recent:
+            print(f"[HEARTBEAT] crash loop continues (NRestarts {previous}->{current}) — alerted within the hour")
+        else:
+            try:
+                tail = subprocess.run(["journalctl", "-u", "trading", "-n", "15", "--no-pager"],
+                                      capture_output=True, text=True, timeout=15).stdout
+            except Exception as e:
+                tail = f"(could not read journal: {e})"
+            try:
+                Notifier(cfg).critical_alert(
+                    f"trading.service restarted {current - previous} times in the last 5 min "
+                    f"(NRestarts {previous} -> {current}) — it is crash-looping. The heartbeat "
+                    f"stays fresh in this state, so this is the only watchdog that sees it.\n\n"
+                    f"Check:  ssh workstation 'journalctl -u trading -n 60 --no-pager'\n\n"
+                    f"--- last 15 journal lines ---\n{tail}"
+                )
+                last_alert = now.isoformat()
+                print(f"[HEARTBEAT] CRASH-LOOP ALERT sent — NRestarts {previous}->{current}")
+            except Exception as e:
+                print(f"[HEARTBEAT] crash-loop alert failed: {e}")
+
+    try:
+        json.dump({"count": current, "last_alert": last_alert, "at": now.isoformat()},
+                  open(RESTART_STATE, "w"))
+    except Exception:
+        pass
+
+
 def market_is_open(cfg) -> bool:
     req = urllib.request.Request(
         f"{cfg.alpaca.base_url}/v2/clock",
@@ -126,6 +192,7 @@ def main() -> None:
     stale = age is not None and age > STALE_SECONDS
     status = "missing" if age is None else ("stale" if stale else "ok")
     push_splunk_heartbeat(status, age, market_open)
+    check_restart_storm(cfg, now)
 
     if not market_open:
         return

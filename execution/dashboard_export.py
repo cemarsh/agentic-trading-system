@@ -597,7 +597,35 @@ def build_modules(state: dict, settings, now: datetime, market_open: Optional[bo
         _scheduled_module("weekly wrap-up", "Friday 16:15 ET", "last_weekly_wrapup", state,
                           now_et, friday, 16, 15, "weekly", grace_min=90),
     ]
+    mods += health_modules(state)
     return mods
+
+
+def health_modules(state: dict) -> list:
+    """Email delivery + credential rows. Both read persisted facts the loop already
+    keeps (notifier's degraded marker, state['credential_health']) — a dead key shows
+    here the same day, not after a journal grep (2026-10-04..20)."""
+    from execution.notifier import read_degraded
+    rows = []
+    degraded = read_degraded()
+    if degraded:
+        rows.append({"name": "email delivery", "kind": "health", "status": "stale",
+                     "interval_s": 7200, "last_seen": degraded.get("last_failure"),
+                     "note": f"FAILING since {degraded.get('since')} "
+                             f"({degraded.get('failures')} failures): {degraded.get('last_error')}"})
+    else:
+        rows.append({"name": "email delivery", "kind": "health", "status": "ok",
+                     "interval_s": 7200, "last_seen": None,
+                     "note": "Resend; a rejected send posts to Slack and shows here"})
+    health = state.get("credential_health") or {}
+    checked = state.get("last_credential_check")
+    for name, h in health.items():
+        st = h.get("status")
+        status = "ok" if st == "ok" else "stale" if st == "invalid" else "idle" if st == "unset" else "late"
+        rows.append({"name": f"{name} key", "kind": "health", "status": status,
+                     "interval_s": 6 * 3600, "last_seen": h.get("checked_at") or checked,
+                     "note": f"{st}: {h.get('detail', '')}"})
+    return rows
 
 
 _TRADE_RE = re.compile(r"^(SELL|BUY|ROLL|CLOSE|BTC|STO|BOUGHT|SOLD)\b|\bfilled\b", re.IGNORECASE)
@@ -716,7 +744,9 @@ def build_state(settings=None, now: Optional[datetime] = None) -> dict:
         alerts.append({"level": "error", "text": "Loop is HALTED — "
                        + str(state.get("last_halt_error") or "no error recorded")})
     for m in modules:
-        if m["status"] == "stale":
+        if m["kind"] == "health" and m["status"] == "stale":
+            alerts.append({"level": "error", "text": f"{m['name']}: {m['note']}"})
+        elif m["status"] == "stale":
             detail = ""
             if m["kind"] == "scheduled":
                 detail = (f" (last run {m['last_run']}, missed {m['missed']})" if m["last_run"]

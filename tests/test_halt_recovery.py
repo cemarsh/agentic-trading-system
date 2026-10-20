@@ -120,3 +120,40 @@ def test_auth_halt_never_probes(recovery):
     with pytest.raises(SystemExit):
         ml._attempt_halt_recovery(_halted("auth"), MagicMock())
     get_clock.assert_not_called()
+
+
+# --- recovery loop cap -----------------------------------------------------------
+# 2026-10-04..20: the probe passed on every restart (Alpaca was fine) while a dead
+# Resend key re-halted the loop ~300 times a day. Self-healing must notice it is
+# healing the same halt over and over and stop.
+
+def test_each_recovery_is_recorded(recovery):
+    get_clock, _ = recovery
+    get_clock.return_value = {"is_open": True}
+    state = _halted()
+    ml._attempt_halt_recovery(state, MagicMock())
+    assert len(state["_halt_recoveries"]) == 1 and state["halted"] is False
+
+
+def test_recurring_halt_stops_self_healing(recovery):
+    get_clock, _ = recovery
+    get_clock.return_value = {"is_open": True}
+    now = ml.time.time()
+    state = _halted()
+    state["_halt_recoveries"] = [now - 600, now - 400, now - 200]
+    with patch.object(ml, "_slack") as slack, pytest.raises(SystemExit):
+        ml._attempt_halt_recovery(state, MagicMock())
+    get_clock.assert_not_called()
+    assert state["halted"] is True
+    assert "halt/recover loop" in slack.call_args.args[0]
+
+
+def test_old_recoveries_fall_out_of_the_window(recovery):
+    get_clock, _ = recovery
+    get_clock.return_value = {"is_open": True}
+    now = ml.time.time()
+    state = _halted()
+    state["_halt_recoveries"] = [now - 7200, now - 5000, now - 3700, now - 100]
+    ml._attempt_halt_recovery(state, MagicMock())  # only one inside the hour → heals
+    assert state["halted"] is False
+    assert len(state["_halt_recoveries"]) == 2

@@ -3,9 +3,11 @@ Description=Agentic Trading System
 After=network-online.target
 Wants=network-online.target
 # Stop the infinite halt->exit->restart loop. If the loop fails 5 times within
-# 5 minutes, systemd gives up and the unit enters `failed` state instead of
+# 15 minutes, systemd gives up and the unit enters `failed` state instead of
 # respawning forever (it once spun 1800+ times, silently, for 5 days).
-StartLimitIntervalSec=300
+# 15 min, not 5: a halt takes ~45s of in-process retries + RestartSec=30, so five
+# starts span ~300s and a 300s window never tripped (2026-10-04..20, ~300/day).
+StartLimitIntervalSec=900
 StartLimitBurst=5
 # When it gives up, fire a loud alert (email + Slack).
 OnFailure=trading-alert.service

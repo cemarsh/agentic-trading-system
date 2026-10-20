@@ -7,8 +7,9 @@ Usage:
 import argparse
 import json
 import sys
+import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,51 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import resend
 from config import settings as cfg_module
+
+# Email delivery is a side effect, never a step the loop depends on. When Resend
+# rejects a send, the failure is recorded here (persisted, so a restart loop can't
+# reset it), announced on Slack — the channel that does NOT run through the Resend
+# key — and re-announced at most once a day until a send succeeds again.
+# 2026-10-04..20: the Resend key was revoked in an incident response and every
+# email raised for 16 days. The raise halted the loop (~300 restarts/day), the halt
+# alert was itself an email, and the Slack fallback sat *after* the raise.
+DEGRADED_PATH = Path("logs/notifier_degraded.json")
+SLACK_REMIND_SECONDS = 24 * 3600
+
+
+def slack_post(url: str, text: str) -> bool:
+    """Post a plain-text message to a Slack incoming webhook. Never raises."""
+    if not url:
+        return False
+    try:
+        payload = json.dumps({"text": text}).encode()
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception as e:
+        print(f"[SLACK] send failed: {e}")
+        return False
+
+
+def read_degraded() -> Optional[dict]:
+    """The persisted email-failure marker, or None when delivery is healthy."""
+    try:
+        with open(DEGRADED_PATH) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_degraded(marker: Optional[dict]) -> None:
+    try:
+        if marker is None:
+            DEGRADED_PATH.unlink(missing_ok=True)
+            return
+        DEGRADED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(DEGRADED_PATH, "w") as f:
+            json.dump(marker, f, indent=2)
+    except OSError as e:
+        print(f"[EMAIL] could not write {DEGRADED_PATH}: {e}")
 
 # Some mail clients mis-decode non-ASCII in our plain-text reports (the corrupted
 # P&L lines / degree signs in the daily report). Normalize the usual suspects to
@@ -44,7 +90,10 @@ class Notifier:
         resend.api_key = self.cfg.notifications.resend_key
         self.to = self.cfg.notifications.alert_email
 
-    def send(self, subject: str, body: str, is_html: bool = False):
+    def send(self, subject: str, body: str, is_html: bool = False,
+             raise_on_error: bool = False) -> bool:
+        """Deliver one email. Returns False instead of raising when Resend rejects it
+        (see DEGRADED_PATH) — only `--verify-only` wants the exception."""
         params: resend.Emails.SendParams = {
             "from": "Trading System <noreply@cloudmagicgroup.com>",
             "to": [self.to],
@@ -54,21 +103,53 @@ class Notifier:
             params["html"] = body
         else:
             params["text"] = _ascii_safe(body)
-        resend.Emails.send(params)
-
-    def send_slack(self, text: str):
-        """Post a plain-text message to the configured Slack webhook. Silently no-ops if unset."""
-        url = self.cfg.notifications.slack_webhook_url
-        if not url:
-            return
         try:
-            payload = json.dumps({"text": text}).encode()
-            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=10)
+            resend.Emails.send(params)
         except Exception as e:
-            print(f"[SLACK] send failed: {e}")
+            self._record_failure(e, subject)
+            if raise_on_error:
+                raise
+            return False
+        self._record_success()
+        return True
 
-    def critical_alert(self, message: str):
+    def _record_failure(self, err: Exception, subject: str) -> None:
+        now = time.time()
+        marker = read_degraded() or {"since": _iso(now), "failures": 0, "last_slack": None}
+        marker["failures"] += 1
+        marker["last_error"] = str(err)[:200]
+        marker["last_subject"] = subject[:80]
+        marker["last_failure"] = _iso(now)
+        print(f"[EMAIL] send failed ({marker['failures']} since {marker['since']}): {err} "
+              f"— subject {subject!r}")
+        last_slack = marker.get("last_slack")
+        if not last_slack or now - last_slack >= SLACK_REMIND_SECONDS:
+            if self.send_slack(
+                f":warning: *Trading email delivery is failing* since {marker['since']} "
+                f"({marker['failures']} failure(s)) — {marker['last_error']}\n"
+                f"Status, daily and halt emails are NOT arriving. Check RESEND_API_KEY in "
+                f".env on VM 117 (and the WSL copy), then `systemctl restart trading`."
+            ):
+                marker["last_slack"] = now
+        _write_degraded(marker)
+
+    def _record_success(self) -> None:
+        marker = read_degraded()
+        if marker is None:
+            return
+        self.send_slack(f":white_check_mark: *Trading email delivery restored* — "
+                        f"{marker.get('failures', '?')} failure(s) since {marker.get('since')}.")
+        print(f"[EMAIL] delivery restored after {marker.get('failures')} failure(s)")
+        _write_degraded(None)
+
+    def send_slack(self, text: str) -> bool:
+        """Post a plain-text message to the configured Slack webhook. No-ops if unset."""
+        return slack_post(self.cfg.notifications.slack_webhook_url, text)
+
+    def critical_alert(self, message: str) -> bool:
+        """Email + Slack. Slack goes FIRST: if the email key is what broke, the Slack
+        message is the only alert that will arrive. Returns True if either channel
+        accepted the alert."""
         now = datetime.utcnow().isoformat()
         # Stamp the critical-alert log FIRST — live_readiness gates "N days with
         # zero critical alerts" off this file, so it must record even if delivery fails.
@@ -81,8 +162,9 @@ class Notifier:
         except Exception:
             pass
         body = f"CRITICAL ALERT — {now}Z\n\n{message}"
-        self.send(subject="[CRITICAL] Trading System Alert", body=body)
-        self.send_slack(f":rotating_light: *CRITICAL* — {message[:500]}")
+        slack_ok = self.send_slack(f":rotating_light: *CRITICAL* — {message[:500]}")
+        email_ok = self.send(subject="[CRITICAL] Trading System Alert", body=body)
+        return slack_ok or email_ok
 
     def status_report(
         self,
@@ -213,12 +295,17 @@ class Notifier:
         )
 
 
+def _iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds")
+
+
 def test_send(settings=None):
     try:
         n = Notifier(settings)
         n.send(
             subject="[TEST] Trading System — Connectivity Check",
             body="Email delivery confirmed.",
+            raise_on_error=True,
         )
         print("[OK] Resend email — test message sent")
         return True

@@ -52,6 +52,12 @@ NETWORK_FAILURE_HALT_THRESHOLD = 20
 # Startup recovery re-probes a transient outage in-process on this schedule (the last
 # value repeats) instead of exiting — see _attempt_halt_recovery.
 RECOVERY_PROBE_BACKOFF_SECONDS = (30, 60, 120, 300)
+# A halt that self-heals and promptly recurs is a loop, not an outage. After this many
+# recoveries inside the window the loop stays halted, so systemd's start limit trips
+# and OnFailure= shouts. 2026-10-04..20: the Alpaca probe passed every restart while
+# a dead Resend key re-halted the loop ~300 times a day for 16 days, with no alert.
+HALT_RECOVERY_MAX = 3
+HALT_RECOVERY_WINDOW_SECONDS = 3600
 
 INITIAL_STATE = {
     "verification_trades_done": 0,
@@ -268,6 +274,9 @@ def run_scheduled_tasks(
     """
     now_et = datetime.now(MARKET_TZ)
     today_et = now_et.date().isoformat()
+
+    # --- Credential health (every 6h, market open or closed) ---
+    _check_credentials(state, cfg)
 
     # --- Daily report + journal wrap-up ---
     # Report day is the last day the market was actually open (per last_status_report),
@@ -591,8 +600,24 @@ def _attempt_halt_recovery(state: dict, cfg) -> None:
               f"       Fix credentials, then reset logs/agent_state.json to resume.")
         sys.exit(1)
 
+    now = time.time()
+    recoveries = [t for t in state.get("_halt_recoveries", [])
+                  if isinstance(t, (int, float)) and now - t < HALT_RECOVERY_WINDOW_SECONDS]
+    state["_halt_recoveries"] = recoveries
+    if len(recoveries) >= HALT_RECOVERY_MAX:
+        msg = (f"halt recurred {len(recoveries)}x in the last "
+               f"{HALT_RECOVERY_WINDOW_SECONDS // 60} min (reason={reason}, last error: "
+               f"{last_err}) — the probe passes but the loop keeps dying. Refusing to "
+               f"self-heal again; staying halted for a human. Fix the cause, then reset "
+               f"logs/agent_state.json (halted=false, _halt_recoveries=[]) and restart.")
+        print(f"[HALT] {msg}")
+        _slack(f":rotating_light: *Trading loop stuck in a halt/recover loop* — {msg}")
+        save_state(state)
+        sys.exit(1)
+
     print(f"[RECOVERY] Halt (reason={reason}, network={nf}, api={af}, "
-          f"last_api_success={last_ok}) — probing live API ...")
+          f"last_api_success={last_ok}, recoveries_this_hour={len(recoveries)}) "
+          f"— probing live API ...")
     attempt = 0
     while True:
         try:
@@ -616,26 +641,60 @@ def _attempt_halt_recovery(state: dict, cfg) -> None:
     state["network_failures"] = 0
     state["api_failures"] = 0
     state.pop("halt_reason", None)
+    state["_halt_recoveries"] = recoveries + [now]
     save_state(state)
     HALT_ALERT_PATH.unlink(missing_ok=True)
     _send_recovery_slack_alert(nf, af)
 
 
+def _slack(text: str) -> bool:
+    """Slack webhook from the environment — the alert path that does not depend on the
+    Resend key, the database, or a constructed Notifier. Never raises."""
+    import os
+    from execution.notifier import slack_post
+    return slack_post(os.environ.get("SLACK_WEBHOOK_URL", ""), text)
+
+
 def _send_recovery_slack_alert(network_failures: int, api_failures: int) -> None:
     """Fire a Slack message when the system self-heals from a network halt."""
-    import os, json, urllib.request
-    url = os.environ.get("SLACK_WEBHOOK_URL", "")
-    if not url:
-        return
+    _slack(f":white_check_mark: *Trading system auto-recovered* — "
+           f"network restored after {network_failures} network + {api_failures} API failures. "
+           f"Loop resuming.")
+
+
+def _check_credentials(state: dict, cfg, force: bool = False) -> None:
+    """Probe the non-broker keys (Resend, Anthropic) at startup and every
+    credential_health.RECHECK_SECONDS; keep the verdicts in state for the dashboard and
+    shout on Slack when a key turns invalid. A key rotated elsewhere must show up here,
+    not 16 days later in a journal grep."""
+    from execution import credential_health as ch
+    last = state.get("last_credential_check")
+    if not force and last:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+            if age < ch.RECHECK_SECONDS:
+                return
+        except ValueError:
+            pass
     try:
-        msg = (f":white_check_mark: *Trading system auto-recovered* — "
-               f"network restored after {network_failures} network + {api_failures} API failures. "
-               f"Loop resuming.")
-        payload = json.dumps({"text": msg}).encode()
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
+        health = ch.probe_all(cfg)
+    except Exception as e:
+        print(f"[CREDS] probe failed: {e}")
+        return
+    changes = ch.transitions(state.get("credential_health"), health)
+    state["credential_health"] = health
+    state["last_credential_check"] = datetime.now(timezone.utc).isoformat()
+    print(f"[CREDS] {ch.describe(health)}")
+    for name, old, new in changes:
+        if new == ch.INVALID:
+            _slack(f":rotating_light: *{name} key rejected* — {health[name]['detail']}. "
+                   f"Rotate it in .env on VM 117 (and the WSL copy), then "
+                   f"`systemctl restart trading`. Until then: "
+                   + ("no emails leave the system." if name == "resend"
+                      else "no Claude synthesis (journal, advisor, briefing)."))
+        elif old == ch.INVALID and new == ch.OK:
+            _slack(f":white_check_mark: *{name} key accepted again*")
+    save_state(state)
 
 
 def _poll_whale(state: dict, whale, feed_cd, feed_err_cd, blocked_cd,
@@ -725,6 +784,9 @@ def run(mode: str):
             print(f"[WARN] Resend unavailable — email disabled ({e})")
     else:
         print("[INFO] No RESEND_API_KEY — email alerts disabled")
+
+    # Are the keys in .env still alive? Re-probed every 6h from run_scheduled_tasks.
+    _check_credentials(state, cfg, force=True)
 
     hw = HardwareMonitor(settings=cfg, notifier=notifier)
     risk_gate = RiskGate(settings=cfg)

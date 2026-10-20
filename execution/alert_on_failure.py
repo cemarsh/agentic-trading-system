@@ -45,10 +45,14 @@ def main() -> None:
     )
 
     try:
-        Notifier().critical_alert(msg)
-        print("[ALERT] failure alert sent")
+        delivered = Notifier().critical_alert(msg)
     except Exception as e:
         print(f"[ALERT] failed to send: {e}")
+        sys.exit(1)
+    if delivered:
+        print("[ALERT] failure alert sent")
+    else:
+        print("[ALERT] neither Slack nor email accepted the alert — see the journal")
         sys.exit(1)
 
 
