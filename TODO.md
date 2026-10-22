@@ -885,12 +885,23 @@ private). The Anthropic key went 401 the next day (10-05), presumably the same s
 - [x] **ANTHROPIC_API_KEY rotated 2026-10-20 15:07 PT** — new key in both `.env` files, service
       restarted, startup log `[CREDS] resend ok · anthropic ok`, `credential_health.py` green on
       both hosts. Journal synthesis / advisor / briefing resume tonight.
-- [ ] Daily journals 10-08 → 10-19 were never written (the email raise happened before the
-      file write? — no: `[JOURNAL] wrote 2026-10-07.md` repeated nightly because
-      `last_daily_report` never advanced). Decide whether to backfill from
-      `logs/insights/*.jsonl` or accept the gap.
-- [ ] The Resend account's `board@` sender: find which project used that address and confirm
-      its key was rotated too (list-api-keys showed zero keys on 10-20 — anything else that
-      emails through this account is also dead).
+- [x] Daily journals 10-08 → 10-19 backfilled 2026-10-20 (`daily_journal.py --wrap-up --date`
+      on the VM, commit 0b92c4b); 10-12 and 10-20 hit the output cap and are truncated.
+- [x] Resend sweep fallout, traced 2026-10-20: the same revoked key was still in six other
+      projects' `.env` (avaya, cmtg-astro, cmtg-nextgen, msp-quote, secure-online, svo-free)
+      and fovea had two more dead keys. New per-project keys minted and written into each
+      `.env`. avaya is fully fixed (dotenv); cmtg-astro has no live Resend code; cmtg-nextgen's
+      Pages project does not exist on the account (functions are not deployed). Production
+      secret stores still need Chris: fovea (Vercel) 86bcnpvg3, msp-quote (host unclear)
+      86bcnpvh4, secure-online + svo-free (Supabase Edge Function secrets) 86bcnpvj9.
+
+## 2026-10-22 — every update carries the dashboard link (v2.3.5)
+
+Status reports, wrap-ups, briefings and alerts arrived with no way to get to the live state.
+`Notifier.send()` and `slack_post()` now append `https://trading.cloudmagic.software` once
+(text footer, HTML footer, or Slack line); `DASHBOARD_URL` env overrides
+`notifications.dashboard_url`. Commit 9d25fb3, deployed, verified with a real email and Slack
+post. Dashboard check the same day: snapshot fresh, all three health rows ok, only alert is
+the universe screen that missed 10-19 during the crash loop (next run Monday 10-26).
 - [ ] 2026-10-14 / 10-30 event-odds checks and the 10-01 FJET fill check (previous section)
       were not done today; the journal has the `[EVENT]` lines, nobody has read them.

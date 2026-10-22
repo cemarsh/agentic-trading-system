@@ -1,7 +1,7 @@
 # Agentic Trading System
 
-**Version**: 2.3.4  
-**Last Updated**: 2026-10-20  
+**Version**: 2.3.5  
+**Last Updated**: 2026-10-22  
 **Operator**: Cloud Magic Technology Group  
 **Status**: Live (Paper) · Home Workstation · Alpaca Markets
 
@@ -512,6 +512,16 @@ exemption from a per-name floor is not an exemption from the book-wide gate, so 
 quietly costs the entire strategy its throughput.
 
 ---
+
+## Dashboard Link on Every Update (v2.3.5, 2026-10-22)
+
+Every outbound email and Slack post ends with the live dashboard link
+(`https://trading.cloudmagic.software`). It is added in one place — `Notifier.send()` for
+email (plain-text or HTML footer) and `slack_post()` for Slack — so status reports, daily and
+weekly wrap-ups, the morning briefing, whale/wheel notices, credential alerts and critical
+alerts all carry it without each caller knowing. The link is appended once (skipped if the
+body already contains it). `notifications.dashboard_url` in `strategy_params.yaml` sets it;
+the `DASHBOARD_URL` environment variable overrides.
 
 ## Credential Health & Crash-Loop Alerting (v2.3.4, 2026-10-20)
 
