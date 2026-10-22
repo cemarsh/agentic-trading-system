@@ -41,6 +41,7 @@ class NotificationConfig:
     status_check_interval_hours: int
     timezone: str
     slack_webhook_url: str = ""
+    dashboard_url: str = ""  # appended to every email and Slack post
 
 
 @dataclass
@@ -263,6 +264,8 @@ def load() -> Settings:
             status_check_interval_hours=raw["notifications"].get("status_check_interval_hours", 2),
             timezone=raw["notifications"]["timezone"],
             slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL", ""),
+            dashboard_url=os.environ.get(
+                "DASHBOARD_URL", raw["notifications"].get("dashboard_url", "")),
         ),
         hardware=HardwareConfig(**raw["hardware"]),
         intelligence=IntelligenceConfig(**raw["intelligence"]),

@@ -6,6 +6,7 @@ and respawned ~300 times a day for 16 days, and the Slack fallback in
 critical_alert sat *after* the raise so it never fired.
 """
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -84,6 +85,41 @@ def test_critical_alert_reaches_slack_when_email_is_dead(n, tmp_path, monkeypatc
     send.side_effect = Exception("API key is invalid")
     assert notifier.critical_alert("loop halted") is True
     assert slack.call_args_list[0].args[1].startswith(":rotating_light:")
+
+
+def test_every_email_ends_with_the_dashboard_link(n):
+    notifier, send, _ = n
+    notifier.send("subj", "body text")
+    assert send.call_args.args[0]["text"].endswith(
+        "\n\nDashboard: https://trading.cloudmagic.software")
+    notifier.send("subj", "<html><body><p>hi</p></body></html>", is_html=True)
+    html = send.call_args.args[0]["html"]
+    assert 'href="https://trading.cloudmagic.software"' in html and html.endswith("</body></html>")
+
+
+def test_dashboard_link_is_added_once_and_env_overrides(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_URL", "https://dash.example")
+    s = _settings()
+    s.notifications.dashboard_url = "https://ignored.example"
+    with patch.object(nt.resend.Emails, "send") as send:
+        notifier = nt.Notifier(s)
+        notifier.send("a", "already links https://dash.example here")
+        assert send.call_args.args[0]["text"].count("https://dash.example") == 1
+        notifier.send("a", "plain")
+        assert send.call_args.args[0]["text"].endswith("Dashboard: https://dash.example")
+
+
+def test_slack_posts_carry_the_link(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_URL", "https://dash.example")
+    seen = {}
+
+    def capture(req, timeout=0):
+        seen["text"] = json.loads(req.data)["text"]
+
+    with patch.object(nt.urllib.request, "urlopen", capture):
+        assert nt.slack_post("https://hooks.example/x", ":rotating_light: halted") is True
+    assert seen["text"].startswith(":rotating_light: halted")
+    assert seen["text"].endswith("Dashboard: https://dash.example")
 
 
 def test_critical_alert_false_when_no_channel_works(n, tmp_path, monkeypatch):

@@ -6,6 +6,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -27,6 +28,33 @@ from config import settings as cfg_module
 # alert was itself an email, and the Slack fallback sat *after* the raise.
 DEGRADED_PATH = Path("logs/notifier_degraded.json")
 SLACK_REMIND_SECONDS = 24 * 3600
+DEFAULT_DASHBOARD_URL = "https://trading.cloudmagic.software"
+
+
+def dashboard_url() -> str:
+    """Where to read the live state. Env wins (same name systemd passes), then the
+    YAML `notifications.dashboard_url`, then the known public address."""
+    env = os.environ.get("DASHBOARD_URL", "").strip()
+    if env:
+        return env
+    try:
+        return cfg_module.load().notifications.dashboard_url or DEFAULT_DASHBOARD_URL
+    except Exception:
+        return DEFAULT_DASHBOARD_URL
+
+
+def with_dashboard_link(text: str, url: str, is_html: bool = False) -> str:
+    """Append the dashboard link once. Every outbound update goes through here so a
+    reader of any email or Slack post can get to the live state in one click."""
+    if not url or url in text:
+        return text
+    if is_html:
+        footer = (f'<p style="margin-top:1.5em;font-size:0.9em;color:#666">'
+                  f'Live dashboard: <a href="{url}">{url}</a></p>')
+        if "</body>" in text:
+            return text.replace("</body>", footer + "</body>", 1)
+        return text + footer
+    return f"{text.rstrip()}\n\nDashboard: {url}"
 
 
 def slack_post(url: str, text: str) -> bool:
@@ -34,6 +62,7 @@ def slack_post(url: str, text: str) -> bool:
     if not url:
         return False
     try:
+        text = with_dashboard_link(text, dashboard_url())
         payload = json.dumps({"text": text}).encode()
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=10)
@@ -89,6 +118,9 @@ class Notifier:
         self.cfg = settings or cfg_module.load()
         resend.api_key = self.cfg.notifications.resend_key
         self.to = self.cfg.notifications.alert_email
+        self.dashboard_url = (os.environ.get("DASHBOARD_URL", "").strip()
+                              or getattr(self.cfg.notifications, "dashboard_url", "")
+                              or DEFAULT_DASHBOARD_URL)
 
     def send(self, subject: str, body: str, is_html: bool = False,
              raise_on_error: bool = False) -> bool:
@@ -99,6 +131,7 @@ class Notifier:
             "to": [self.to],
             "subject": _ascii_safe(subject),
         }
+        body = with_dashboard_link(body, self.dashboard_url, is_html)
         if is_html:
             params["html"] = body
         else:

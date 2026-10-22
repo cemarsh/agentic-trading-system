@@ -325,6 +325,8 @@ notifications:
   daily_report_time: "16:15"     # 4:15 PM local market time
   status_check_interval_hours: 2 # Send a status email every N hours during market window
   timezone: "America/New_York"
+  # Every email and Slack post ends with this link (env DASHBOARD_URL overrides).
+  dashboard_url: "https://trading.cloudmagic.software"
 
 regime:
   bear_spy_threshold: -2.0       # SPY intraday % → BEAR (half allocation, wider delta)
