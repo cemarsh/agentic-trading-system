@@ -903,5 +903,10 @@ Status reports, wrap-ups, briefings and alerts arrived with no way to get to the
 `notifications.dashboard_url`. Commit 9d25fb3, deployed, verified with a real email and Slack
 post. Dashboard check the same day: snapshot fresh, all three health rows ok, only alert is
 the universe screen that missed 10-19 during the crash loop (next run Monday 10-26).
+
+- [ ] Mon 2026-10-26: confirm the universe screen ran and the dashboard row is green (ClickUp 86bcphz89).
+- [ ] Journals 10-12 and 10-20 hit `max_tokens`; raise the cap or trim heavy dumps, regenerate (86bcphz8e).
+- [ ] Waiting on Chris: Resend production secrets for fovea 86bcnpvg3, msp-quote 86bcnpvh4,
+      secure-online + svo-free 86bcnpvj9.
 - [ ] 2026-10-14 / 10-30 event-odds checks and the 10-01 FJET fill check (previous section)
       were not done today; the journal has the `[EVENT]` lines, nobody has read them.
