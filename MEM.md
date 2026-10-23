@@ -54,6 +54,8 @@
 
 ## Learnings & Annealings
 
+- **2026-10-22**: **FJET exit rule:** Set a hard stop or exit threshold for FJET. Suggested: if price closes below $0.85 or fails to recover above $0.95 within 5 sessions, initiate market exit on open. Do not let this become a permanent dead-weight holding. Check if any catalyst (earnings, sector news) is due.
+
 - **2026-10-20**: **CLF CSP — confirm fill:** Verify order c3b0584b executed. If still "pending" at open, investigate broker routing; do not let it sit unfilled into another scan cycle without manual review.
 
 - **2026-10-19**: **CLF261106P00012000 — review for early close:** Position is at -32% unrealized and has 18 days to Nov 6 expiry. With earnings 2026-11-06 (day of expiry), assignment risk is elevated if CLF moves toward $12. *Action: set a mental stop or close if CLF261106P00012000 reaches $0.50 (cost doubles from entry); check CLF spot price at open.*
